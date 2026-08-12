@@ -1,0 +1,31 @@
+*** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\Keil_v5\ARM\ARMCC\Bin'
+Build target 'My_OV_Watch'
+compiling menu_page.c...
+..\User\App\app_ui.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t AppUI_IsAmbient(void);
+..\User\App\menu_page.c: 0 warnings, 1 error
+compiling app_ui.c...
+..\User\App\app_ui.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t AppUI_IsAmbient(void);
+..\User\App\app_ui.c: 0 warnings, 1 error
+compiling time_setting_page.c...
+..\User\App\app_ui.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t AppUI_IsAmbient(void);
+..\User\App\time_setting_page.c: 0 warnings, 1 error
+compiling date_setting_page.c...
+..\User\App\app_ui.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t AppUI_IsAmbient(void);
+..\User\App\date_setting_page.c: 0 warnings, 1 error
+compiling watch_face.c...
+..\User\WatchFace\watch_face.h(19): error:  #20: identifier "uint8_t" is undefined
+  void WatchFace_SetAmbientMode(uint8_t enabled);
+../User/App/app_ui.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t AppUI_IsAmbient(void);
+..\User\WatchFace\watch_face.c: 0 warnings, 2 errors
+compiling main.c...
+../Core/Src/main.c(224): warning:  #177-D: function "Touch_Test_Event"  was declared but never referenced
+  static void Touch_Test_Event(lv_event_t *event)
+../Core/Src/main.c: 1 warning, 0 errors
+"My_OV_Watch\My_OV_Watch.axf" - 6 Error(s), 1 Warning(s).
+Target not created.
+Build Time Elapsed:  00:00:03
