@@ -41,13 +41,76 @@ static void MenuPage_ItemEvent(lv_event_t *event)
     }
 }
 
+static void MenuPage_ItemDrawEvent(lv_event_t *event)
+{
+    const MenuItem_t *item;
+    lv_obj_t *panel;
+    lv_draw_ctx_t *draw_ctx;
+    lv_draw_rect_dsc_t circle_dsc;
+    lv_draw_label_dsc_t label_dsc;
+    lv_area_t panel_area;
+    lv_area_t draw_area;
+    lv_coord_t line_height;
+
+    item = (const MenuItem_t *)lv_event_get_user_data(event);
+    panel = lv_event_get_target(event);
+    draw_ctx = lv_event_get_draw_ctx(event);
+    if((item == NULL) || (panel == NULL) || (draw_ctx == NULL)) return;
+
+    lv_obj_get_coords(panel, &panel_area);
+
+    /* Draw the colored icon circle directly. This replaces a child object and
+       a child label while preserving the original appearance. */
+    draw_area.x1 = panel_area.x1 + 12;
+    draw_area.x2 = draw_area.x1 + 39;
+    draw_area.y1 = panel_area.y1 + 15;
+    draw_area.y2 = draw_area.y1 + 39;
+    lv_draw_rect_dsc_init(&circle_dsc);
+    circle_dsc.radius = LV_RADIUS_CIRCLE;
+    circle_dsc.bg_color = lv_color_hex(item->icon_color);
+    circle_dsc.bg_opa = LV_OPA_COVER;
+    circle_dsc.border_opa = LV_OPA_TRANSP;
+    lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
+
+    /* Icon glyph. */
+    lv_draw_label_dsc_init(&label_dsc);
+    label_dsc.font = item->icon_font;
+    label_dsc.color = lv_color_hex(0xFFFFFFU);
+    label_dsc.opa = LV_OPA_COVER;
+    label_dsc.align = LV_TEXT_ALIGN_CENTER;
+    line_height = lv_font_get_line_height(item->icon_font);
+    draw_area.x1 = panel_area.x1 + 12;
+    draw_area.x2 = draw_area.x1 + 39;
+    draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
+    draw_area.y2 = draw_area.y1 + line_height - 1;
+    lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->icon_text, NULL);
+
+    /* Item name. */
+    label_dsc.font = &lv_font_montserrat_14;
+    label_dsc.color = lv_color_hex(0xF2F4F7U);
+    label_dsc.align = LV_TEXT_ALIGN_LEFT;
+    line_height = lv_font_get_line_height(label_dsc.font);
+    draw_area.x1 = panel_area.x1 + 68;
+    draw_area.x2 = panel_area.x2 - 38;
+    draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
+    draw_area.y2 = draw_area.y1 + line_height - 1;
+    lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->name, NULL);
+
+    /* Right arrow. */
+    label_dsc.font = LV_FONT_DEFAULT;
+    label_dsc.color = lv_color_hex(0x6F7884U);
+    label_dsc.align = LV_TEXT_ALIGN_RIGHT;
+    line_height = lv_font_get_line_height(label_dsc.font);
+    draw_area.x1 = panel_area.x2 - 38;
+    draw_area.x2 = panel_area.x2 - 12;
+    draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
+    draw_area.y2 = draw_area.y1 + line_height - 1;
+    lv_draw_label(draw_ctx, &label_dsc, &draw_area, LV_SYMBOL_RIGHT, NULL);
+}
+
 static void MenuPage_CreateItem(const MenuItem_t *item)
 {
     lv_obj_t *panel;
-    lv_obj_t *icon_circle;
-    lv_obj_t *icon;
-    lv_obj_t *name;
-    lv_obj_t *arrow;
 
     panel = lv_obj_create(s_menu_list);
     lv_obj_set_size(panel, 240, 70);
@@ -58,44 +121,19 @@ static void MenuPage_CreateItem(const MenuItem_t *item)
     lv_obj_set_style_pad_all(panel, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(panel,
-                              lv_color_hex(0x808080U),
+                              lv_color_hex(0x303238U),
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(panel,
-                            100,
+                            LV_OPA_COVER,
                             LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_add_event_cb(panel,
                         MenuPage_ItemEvent,
                         LV_EVENT_CLICKED,
                         (void *)item);
-
-    icon_circle = lv_obj_create(panel);
-    lv_obj_set_size(icon_circle, 40, 40);
-    lv_obj_align(icon_circle, LV_ALIGN_LEFT_MID, 12, 0);
-    lv_obj_clear_flag(icon_circle, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_radius(icon_circle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_border_width(icon_circle, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(icon_circle, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(icon_circle,
-                              lv_color_hex(item->icon_color),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(icon_circle, LV_OPA_COVER, LV_PART_MAIN);
-
-    icon = lv_label_create(icon_circle);
-    lv_label_set_text(icon, item->icon_text);
-    lv_obj_set_style_text_font(icon, item->icon_font, LV_PART_MAIN);
-    lv_obj_set_style_text_color(icon, lv_color_hex(0xFFFFFFU), LV_PART_MAIN);
-    lv_obj_center(icon);
-
-    name = lv_label_create(panel);
-    lv_label_set_text(name, item->name);
-    lv_obj_set_style_text_font(name, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_set_style_text_color(name, lv_color_hex(0xF2F4F7U), LV_PART_MAIN);
-    lv_obj_align(name, LV_ALIGN_LEFT_MID, 68, 0);
-
-    arrow = lv_label_create(panel);
-    lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_color(arrow, lv_color_hex(0x6F7884U), LV_PART_MAIN);
-    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -12, 0);
+    lv_obj_add_event_cb(panel,
+                        MenuPage_ItemDrawEvent,
+                        LV_EVENT_DRAW_MAIN,
+                        (void *)item);
 }
 
 void MenuPage_Create(void)
