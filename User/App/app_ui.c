@@ -47,6 +47,7 @@ static void AppUI_EnterLowPower(uint8_t force_stop);
 static void AppUI_Wake(uint8_t wrist_peek);
 static void AppUI_ExitStop(uint8_t wrist_peek);
 static void AppUI_ForceWatchPage(void);
+static void AppUI_ApplyWatchStatusBar(void);
 
 void AppUI_Init(void)
 {
@@ -61,6 +62,7 @@ void AppUI_Init(void)
     s_notification_generation = NotificationManager_GetGeneration();
     WatchFace_Create();
     StatusBar_Create(lv_scr_act());
+    AppUI_ApplyWatchStatusBar();
     s_last_touch_inactive_ms = lv_disp_get_inactive_time(NULL);
 }
 
@@ -366,6 +368,9 @@ static void AppUI_CreatePage(AppUI_Page_t page)
         break;
     }
     StatusBar_Create(lv_scr_act());
+    if(page == APP_UI_PAGE_WATCH) {
+        AppUI_ApplyWatchStatusBar();
+    }
 }
 
 static void AppUI_EnterLowPower(uint8_t force_stop)
@@ -376,6 +381,7 @@ static void AppUI_EnterLowPower(uint8_t force_stop)
     s_ambient = 1U;
     s_wrist_peek_active = 0U;
     WatchFace_SetAmbientMode(1U);
+    StatusBar_SetVisible(0U);
     if((DeviceManager_GetAmbientEnabled() != 0U) && (force_stop == 0U)) {
         LCD_Set_Light(DeviceManager_GetAmbientBrightness());
         PowerManager_SuspendUnusedPeripherals(0U);
@@ -406,6 +412,7 @@ static void AppUI_Wake(uint8_t wrist_peek)
     s_ignore_long_press_until = now + APP_UI_LONG_PRESS_GUARD_MS;
     LCD_Set_Light(DeviceManager_GetWorkingBrightness());
     WatchFace_SetAmbientMode(0U);
+    AppUI_ApplyWatchStatusBar();
 }
 
 static void AppUI_ExitStop(uint8_t wrist_peek)
@@ -423,6 +430,7 @@ static void AppUI_ExitStop(uint8_t wrist_peek)
     s_ignore_long_press_until = now + APP_UI_LONG_PRESS_GUARD_MS;
     LCD_ST7789_SleepOut();
     WatchFace_SetAmbientMode(0U);
+    AppUI_ApplyWatchStatusBar();
     LCD_Set_Light(DeviceManager_GetWorkingBrightness());
     lv_obj_invalidate(lv_scr_act());
 }
@@ -436,6 +444,20 @@ static void AppUI_ForceWatchPage(void)
         AppUI_DestroyCurrentPage();
         WatchFace_Create();
         StatusBar_Create(lv_scr_act());
+        AppUI_ApplyWatchStatusBar();
     }
     s_current_page = APP_UI_PAGE_WATCH;
+}
+
+static void AppUI_ApplyWatchStatusBar(void)
+{
+    uint8_t selected = WatchFace_GetSelectedIndex();
+
+    if(selected == 2U) {
+        StatusBar_SetVisible(0U);
+    }
+    else {
+        StatusBar_SetVisible(1U);
+        StatusBar_SetBatteryVisible((selected == 0U) ? 1U : 0U);
+    }
 }

@@ -54,3 +54,17 @@ void StatusBar_Destroy(void)
     if((s_bar != NULL) && lv_obj_is_valid(s_bar)) lv_obj_del(s_bar);
     s_bar = s_ble = s_battery = NULL;
 }
+
+void StatusBar_SetVisible(uint8_t visible)
+{
+    if((s_bar == NULL) || (lv_obj_is_valid(s_bar) == false)) return;
+    if(visible != 0U) lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
+}
+
+void StatusBar_SetBatteryVisible(uint8_t visible)
+{
+    if((s_battery == NULL) || (lv_obj_is_valid(s_battery) == false)) return;
+    if(visible != 0U) lv_obj_clear_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+}

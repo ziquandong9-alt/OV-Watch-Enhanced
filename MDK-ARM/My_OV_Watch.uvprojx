@@ -1745,6 +1745,26 @@
               <FileType>1</FileType>
               <FilePath>..\User\App\Fonts\ui_font_iconfont34.c</FilePath>
             </File>
+            <File>
+              <FileName>ui_font_iconfont16.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\App\Fonts\ui_font_iconfont16.c</FilePath>
+            </File>
+            <File>
+              <FileName>ui_font_iconfont24.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\App\Fonts\ui_font_iconfont24.c</FilePath>
+            </File>
+            <File>
+              <FileName>ui_font_iconfont28.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\App\Fonts\ui_font_iconfont28.c</FilePath>
+            </File>
+            <File>
+              <FileName>ui_font_Cuyuan135.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\App\Fonts\ui_font_Cuyuan135.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

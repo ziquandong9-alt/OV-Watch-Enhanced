@@ -68,6 +68,8 @@ uint8_t DeviceManager_GetWorkingBrightness(void);
 uint8_t DeviceManager_GetAmbientBrightness(void);
 void DeviceManager_SetBrightness(uint8_t working_percent,
                                  uint8_t ambient_percent);
+uint8_t DeviceManager_GetWatchFace(void);
+void DeviceManager_SetWatchFace(uint8_t index);
 void DeviceManager_SaveDateTimeNow(void);
 uint8_t DeviceManager_CanEnterStop(void);
 

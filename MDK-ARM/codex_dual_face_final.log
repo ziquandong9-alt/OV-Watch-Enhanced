@@ -1,0 +1,18 @@
+*** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\Keil_v5\ARM\ARMCC\Bin'
+Build target 'My_OV_Watch'
+compiling ui_font_iconfont24.c...
+..\User\App\Fonts\ui_font_iconfont24.c(7): error:  #5: cannot open source input file "../ui.h": No such file or directory
+  #include "../ui.h"
+..\User\App\Fonts\ui_font_iconfont24.c: 0 warnings, 1 error
+compiling ui_font_iconfont28.c...
+..\User\App\Fonts\ui_font_iconfont28.c(7): error:  #5: cannot open source input file "../ui.h": No such file or directory
+  #include "../ui.h"
+..\User\App\Fonts\ui_font_iconfont28.c: 0 warnings, 1 error
+compiling ui_font_iconfont16.c...
+..\User\App\Fonts\ui_font_iconfont16.c(7): error:  #5: cannot open source input file "../ui.h": No such file or directory
+  #include "../ui.h"
+..\User\App\Fonts\ui_font_iconfont16.c: 0 warnings, 1 error
+compiling watch_face.c...
+"My_OV_Watch\My_OV_Watch.axf" - 3 Error(s), 0 Warning(s).
+Target not created.
+Build Time Elapsed:  00:00:09

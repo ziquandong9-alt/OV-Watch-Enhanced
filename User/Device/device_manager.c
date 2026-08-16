@@ -64,6 +64,7 @@ static uint8_t s_wrist_wake_enabled;
 static uint8_t s_ambient_enabled = 1U;
 static uint8_t s_working_brightness = DEFAULT_WORK_BRIGHTNESS;
 static uint8_t s_ambient_brightness = DEFAULT_AMBIENT_BRIGHTNESS;
+static uint8_t s_watch_face;
 static uint8_t s_wrist_was_up;
 static uint8_t s_wrist_raise_event;
 static uint8_t s_wrist_lower_event;
@@ -749,6 +750,19 @@ void DeviceManager_SetAmbientEnabled(uint8_t enabled)
     SaveSettings();
 }
 
+uint8_t DeviceManager_GetWatchFace(void)
+{
+    return s_watch_face;
+}
+
+void DeviceManager_SetWatchFace(uint8_t index)
+{
+    uint8_t value = (index <= 2U) ? index : 0U;
+    if(value == s_watch_face) return;
+    s_watch_face = value;
+    SaveSettings();
+}
+
 uint8_t DeviceManager_GetWorkingBrightness(void)
 {
     return s_working_brightness;
@@ -893,6 +907,7 @@ static void LoadSettings(void)
         s_ambient_enabled = (record[3] & 0x02U) ? 1U : 0U;
         if((record[4] >= 1U) && (record[4] <= 100U)) s_working_brightness = record[4];
         if((record[5] >= 1U) && (record[5] <= s_working_brightness)) s_ambient_brightness = record[5];
+        if(record[6] <= 2U) s_watch_face = record[6];
         return;
     }
 
@@ -918,6 +933,7 @@ static void SaveSettings(void)
                           (s_ambient_enabled ? 0x02U : 0U));
     record[4] = s_working_brightness;
     record[5] = s_ambient_brightness;
+    record[6] = s_watch_face;
     record[7] = Checksum(record);
     BL24C02_Write((uint8_t)(EEPROM_SETTINGS_BASE +
                             s_settings_next_slot * EEPROM_RECORD_SIZE),

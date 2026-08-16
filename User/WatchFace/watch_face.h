@@ -23,6 +23,9 @@ void WatchFace_SetAmbientMode(uint8_t enabled);
 /** Refresh the non-interactive red notification dot. */
 void WatchFace_RefreshNotificationIndicator(void);
 
+/** Return the selected face: 0 = analog, 1 = information, 2 = jelly digits. */
+uint8_t WatchFace_GetSelectedIndex(void);
+
 #ifdef __cplusplus
 }
 #endif
