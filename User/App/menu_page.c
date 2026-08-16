@@ -120,11 +120,14 @@ void MenuPage_Create(void)
     lv_obj_set_style_pad_all(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_menu_list, lv_color_hex(0x05070AU), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_menu_list, LV_OPA_COVER, LV_PART_MAIN);
+    /* The screen already paints the same opaque background. Keep the scrolling
+       container transparent so every invalidated pixel is filled only once. */
+    lv_obj_set_style_bg_opa(s_menu_list, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_scroll_dir(s_menu_list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(s_menu_list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scrollbar_mode(s_menu_list, LV_SCROLLBAR_MODE_OFF);
+		lv_obj_clear_flag(s_menu_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
     for(i = 0U; i < (sizeof(s_menu_items) / sizeof(s_menu_items[0])); i++) {
         MenuPage_CreateItem(&s_menu_items[i]);

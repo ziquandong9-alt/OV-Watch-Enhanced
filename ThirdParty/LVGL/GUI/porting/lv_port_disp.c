@@ -3,7 +3,7 @@
 #include "lcd.h"
 #include "lcd_init.h"
 
-#define LV_PORT_DISP_BUFFER_LINES 20U
+#define LV_PORT_DISP_BUFFER_LINES 40U
 
 static lv_disp_draw_buf_t s_draw_buffer;
 static lv_color_t s_buffer_1[LCD_W * LV_PORT_DISP_BUFFER_LINES];
