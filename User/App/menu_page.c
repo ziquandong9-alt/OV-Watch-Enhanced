@@ -91,21 +91,10 @@ static void MenuPage_ItemDrawEvent(lv_event_t *event)
     label_dsc.align = LV_TEXT_ALIGN_LEFT;
     line_height = lv_font_get_line_height(label_dsc.font);
     draw_area.x1 = panel_area.x1 + 68;
-    draw_area.x2 = panel_area.x2 - 38;
-    draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
-    draw_area.y2 = draw_area.y1 + line_height - 1;
-    lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->name, NULL);
-
-    /* Right arrow. */
-    label_dsc.font = LV_FONT_DEFAULT;
-    label_dsc.color = lv_color_hex(0x6F7884U);
-    label_dsc.align = LV_TEXT_ALIGN_RIGHT;
-    line_height = lv_font_get_line_height(label_dsc.font);
-    draw_area.x1 = panel_area.x2 - 38;
     draw_area.x2 = panel_area.x2 - 12;
     draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
     draw_area.y2 = draw_area.y1 + line_height - 1;
-    lv_draw_label(draw_ctx, &label_dsc, &draw_area, LV_SYMBOL_RIGHT, NULL);
+    lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->name, NULL);
 }
 
 static void MenuPage_CreateItem(const MenuItem_t *item)
