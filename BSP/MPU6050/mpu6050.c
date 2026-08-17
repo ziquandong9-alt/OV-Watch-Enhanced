@@ -5,6 +5,8 @@
 
 #define CLK_ENABLE __HAL_RCC_GPIOB_CLK_ENABLE();
 
+/* MPU6050 驱动：支持运动中断、低功耗计步采样和完整六轴读取。 */
+
 iic_bus_t MPU_bus =
 {
 	.IIC_SDA_PORT = GPIOB,
@@ -23,6 +25,7 @@ iic_bus_t MPU_bus =
 /**************************************************************************/
 void MPU_INT_Pin_Init()
 {
+    /* 配置 MPU INT 为 EXTI，供 STOP 模式下的抬腕/运动唤醒。 */
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
@@ -49,6 +52,7 @@ void MPU_INT_Pin_Init()
 /**************************************************************************/
 void MPU_Motion_Init(void)
 {
+    /* 设置运动阈值、持续时间和中断锁存方式。 */
     MPU_Write_Byte(MPU_MOTION_DET_REG,0x01);    //set the acceleration threshold is (LSB*2)mg
     MPU_Write_Byte(MPU_MOTION_DUR_REG,0x01);    //Acceleration detection time is ()ms
     MPU_Write_Byte(MPU_INTBP_CFG_REG,0X90);     //INT Pin active low level, reset until 50us
@@ -65,6 +69,7 @@ void MPU_Motion_Init(void)
 /**************************************************************************/
 void MPU_Bus_Init(void)
 {
+    /* 初始化 MPU 使用的软件 I2C 总线。 */
 	CLK_ENABLE;
 	IICInit(&MPU_bus);
 }
@@ -81,6 +86,7 @@ void MPU_Bus_Init(void)
 /**************************************************************************/
 u8 MPU_Init(void)
 {
+    /* 复位器件、校验 WHO_AM_I，并配置时钟、量程、滤波和采样率。 */
 	u8 res;
 
 	MPU_Bus_Init();
@@ -113,17 +119,20 @@ u8 MPU_Init(void)
 
 void MPU_Sleep()
 {
+    /* 设置电源管理寄存器的 SLEEP 位。 */
 	MPU_Write_Byte(MPU_PWR_MGMT1_REG,0x48);//sleep=1,cycle=0,temp_dis=1,internal 8MHz
 }
 
 void MPU_Wakeup()
 {
+    /* 清除 SLEEP 位，保留当前量程和滤波配置。 */
 	//low power modes
 	MPU_Write_Byte(MPU_PWR_MGMT1_REG,0x28);//sleep=0,cycle=1,temp_dis=1,internal 8MHz
 }
 
 uint8_t MPU_Read_Status()
 {
+    /* 读取中断状态；该动作通常也会清除锁存状态。 */
 	return MPU_Read_Byte(MPU_INT_STA_REG);
 }
 
@@ -139,6 +148,7 @@ uint8_t MPU_Read_Status()
 /**************************************************************************/
 u8 MPU_Set_Gyro_Fsr(u8 fsr)
 {
+    /* 配置陀螺仪满量程；fsr 编码由数据手册定义。 */
 	return MPU_Write_Byte(MPU_GYRO_CFG_REG,fsr<<3);
 }
 
@@ -154,6 +164,7 @@ u8 MPU_Set_Gyro_Fsr(u8 fsr)
 /**************************************************************************/
 u8 MPU_Set_Accel_Fsr(u8 fsr)
 {
+    /* 配置加速度计满量程，量程会影响原始值到 g 的比例。 */
 	return MPU_Write_Byte(MPU_ACCEL_CFG_REG,fsr<<3);
 }
 
@@ -169,6 +180,7 @@ u8 MPU_Set_Accel_Fsr(u8 fsr)
 /**************************************************************************/
 u8 MPU_Set_LPF(u16 lpf)
 {
+    /* 根据目标截止频率选择最接近的数字低通滤波配置。 */
 	u8 data=0;
 	if(lpf>=188)data=1;
 	else if(lpf>=98)data=2;
@@ -191,6 +203,7 @@ u8 MPU_Set_LPF(u16 lpf)
 /**************************************************************************/
 u8 MPU_Set_Rate(u16 rate)
 {
+    /* 通过分频寄存器设置采样率，并联动选择合适低通频率。 */
 	u8 data;
 	if(rate>1000)rate=1000;
 	if(rate<4)rate=4;
@@ -210,6 +223,7 @@ u8 MPU_Set_Rate(u16 rate)
 /**************************************************************************/
 short MPU_Get_Temperature(void)
 {
+    /* 读取内部温度原始值并换算成本项目约定的百分之一摄氏度。 */
     u8 buf[2];
     short raw;
 		float temp;
@@ -231,6 +245,7 @@ short MPU_Get_Temperature(void)
 /**************************************************************************/
 u8 MPU_Get_Gyroscope(short *gx,short *gy,short *gz)
 {
+    /* 一次连续读取得到三轴，减少多次 START/STOP 的总线开销。 */
     u8 buf[6],res;
 		res=MPU_Read_Len(MPU_ADDR,MPU_GYRO_XOUTH_REG,6,buf);
 		if(res==0)
@@ -254,6 +269,7 @@ u8 MPU_Get_Gyroscope(short *gx,short *gy,short *gz)
 /**************************************************************************/
 u8 MPU_Get_Accelerometer(short *ax,short *ay,short *az)
 {
+    /* 读取三轴 16 位有符号原始加速度。 */
     u8 buf[6],res;
 		res=MPU_Read_Len(MPU_ADDR,MPU_ACCEL_XOUTH_REG,6,buf);
 		if(res==0)
@@ -279,6 +295,7 @@ u8 MPU_Get_Accelerometer(short *ax,short *ay,short *az)
 /**************************************************************************/
 u8 MPU_Write_Len(u8 addr,u8 reg,u8 len,u8 *buf)
 {
+    /* 底层多字节写，保留 addr 参数以兼容通用 MPU 接口。 */
 	u8 i;
   IICStart(&MPU_bus);
 	IICSendByte(&MPU_bus,(addr<<1)|0);
@@ -314,6 +331,7 @@ u8 MPU_Write_Len(u8 addr,u8 reg,u8 len,u8 *buf)
 /**************************************************************************/
 u8 MPU_Write_Byte(u8 reg,u8 data)
 {
+    /* 单寄存器写是初始化配置的主要构件。 */
   IICStart(&MPU_bus);
 	IICSendByte(&MPU_bus, (MPU_ADDR<<1)|0);
 	if(IICWaitAck(&MPU_bus))
@@ -345,6 +363,7 @@ u8 MPU_Write_Byte(u8 reg,u8 data)
 /**************************************************************************/
 u8 MPU_Read_Byte(u8 reg)
 {
+    /* 单寄存器读；调用方需结合器件状态判断结果。 */
 	u8 res;
   IICStart(&MPU_bus);
 	IICSendByte(&MPU_bus,(MPU_ADDR<<1)|0);
@@ -375,6 +394,7 @@ u8 MPU_Read_Byte(u8 reg)
 /**************************************************************************/
 u8 MPU_Read_Len(u8 addr,u8 reg,u8 len,u8 *buf)
 {
+    /* 连续读 len 字节，用于一次取得完整三轴数据。 */
  	IICStart(&MPU_bus);
 	IICSendByte(&MPU_bus,(addr<<1)|0);
 	if(IICWaitAck(&MPU_bus))
@@ -408,6 +428,7 @@ u8 MPU_Read_Len(u8 addr,u8 reg,u8 len,u8 *buf)
 
 uint8_t MPU_Write_Multi_Byte(uint8_t addr,uint8_t length,uint8_t buff[])
 {
+    /* 从寄存器 addr 开始连续写 length 字节。 */
 	if(IIC_Write_Multi_Byte(&MPU_bus,MPU_ADDR<<1,addr,length,buff))
 	{
 		return 1;
@@ -417,6 +438,7 @@ uint8_t MPU_Write_Multi_Byte(uint8_t addr,uint8_t length,uint8_t buff[])
 
 uint8_t MPU_Read_Multi_Byte(uint8_t addr, uint8_t length, uint8_t buff[])
 {
+    /* 从寄存器 addr 开始连续读到调用方缓冲区。 */
 	if(IIC_Read_Multi_Byte(&MPU_bus, MPU_ADDR<<1, addr, length, buff))
 	{
 		return 1;
@@ -437,6 +459,7 @@ uint8_t MPU_Read_Multi_Byte(uint8_t addr, uint8_t length, uint8_t buff[])
 /**************************************************************************/
 void MPU_Get_Angles(float * roll,float * pitch)
 {
+    /* 仅由加速度估算静态 roll/pitch，运动时会受线性加速度干扰。 */
 	short ax,ay,az;
 	MPU_Get_Accelerometer(&ax,&ay,&az);
 	*pitch = -atanf(ax/sqrtf(ay*ay+az*az));
@@ -455,6 +478,7 @@ void MPU_Get_Angles(float * roll,float * pitch)
 /**************************************************************************/
 uint8_t MPU_isHorizontal(void)
 {
+    /* 根据姿态角阈值判断是否抬腕到可阅读方向，用于生成边沿事件。 */
 	float roll,pitch;
 	MPU_Get_Angles(&roll,&pitch);
 	if(roll<=0.50f && roll>=-0.50f && pitch<=0.50f && pitch>=-0.50f)

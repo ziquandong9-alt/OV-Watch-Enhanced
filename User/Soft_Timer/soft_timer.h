@@ -6,6 +6,7 @@
 #include "main.h"
 
 
+/* 固定槽毫秒定时器；period_ms 依赖 TickHandler 每 1 ms 被调用一次。 */
 void softTimer_init(void);
 bool softTimer_Register(uint8_t id, uint32_t period_ms, void (*callback)(void));
 void softTimer_Stop(uint8_t id);

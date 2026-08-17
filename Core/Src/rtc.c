@@ -56,6 +56,7 @@ void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
+	/* 备份域标记存在时说明 RTC 已运行过，不能在普通复位后把时间重置为零。 */
 	if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != 0x5050U)
 {
 
@@ -89,10 +90,12 @@ void MX_RTC_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN RTC_Init 2 */
+	/* 首次完成默认时间初始化后写标记，后续复位将跳过默认值覆盖。 */
 	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, 0x5050U);
 }
-  /* The backup-domain marker can survive reset; always re-arm the wake IRQ. */
+  /* 标记可跨复位保存，但唤醒定时器配置未必可靠，因此每次启动都重新挂载。 */
   (void)HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+  /* 32768 Hz/16/2048 约为 1 Hz，供普通低功耗节拍使用。 */
   if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2048U,
                                   RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
   {

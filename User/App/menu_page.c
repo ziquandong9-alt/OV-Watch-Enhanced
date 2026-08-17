@@ -8,16 +8,21 @@
 #include <stdint.h>
 
 typedef struct {
+    /* 菜单项显示名称。字符串常量生命周期覆盖整个程序。 */
     const char *name;
+    /* 私用区图标或 LVGL 内建符号。 */
     const char *icon_text;
+    /* 每种图标来自不同字号/字库，绘制时必须配套使用。 */
     const lv_font_t *icon_font;
+    /* 图标圆形背景色，格式为 0xRRGGBB。 */
     uint32_t icon_color;
+    /* 点击后交给 AppUI 状态机的目标页面。 */
     AppUI_Page_t target_page;
 } MenuItem_t;
 
 static lv_obj_t *s_menu_list;
 
-/* Icon glyphs and colors are taken from the original OV-Watch menu. */
+/* 表驱动菜单：新增功能只需增加一行，不必复制一套事件处理代码。 */
 static const MenuItem_t s_menu_items[] = {
     {"Calendar",     MENU_ICON_CALENDAR,     &ui_font_iconfont30, 0xFF8080U, APP_UI_PAGE_DATE_SETTING},
     {"Stopwatch",    MENU_ICON_TIMER,        &ui_font_iconfont34, 0x3A9DFFU, APP_UI_PAGE_STOPWATCH},
@@ -34,6 +39,7 @@ static const MenuItem_t s_menu_items[] = {
 
 static void MenuPage_ItemEvent(lv_event_t *event)
 {
+    /* 创建 panel 时把 MenuItem_t 地址放进 user_data，这里取回对应配置。 */
     const MenuItem_t *item = (const MenuItem_t *)lv_event_get_user_data(event);
 
     if((item != NULL) && (item->target_page != APP_UI_PAGE_MENU)) {
@@ -41,6 +47,7 @@ static void MenuPage_ItemEvent(lv_event_t *event)
     }
 }
 
+/* 在 panel 主绘制阶段直接画圆形图标和名称，避免额外子对象。 */
 static void MenuPage_ItemDrawEvent(lv_event_t *event)
 {
     const MenuItem_t *item;
@@ -52,15 +59,16 @@ static void MenuPage_ItemDrawEvent(lv_event_t *event)
     lv_area_t draw_area;
     lv_coord_t line_height;
 
+    /* DRAW_MAIN 阶段直接画图标和文字，减少子对象数量和滑动时的遍历开销。 */
     item = (const MenuItem_t *)lv_event_get_user_data(event);
     panel = lv_event_get_target(event);
     draw_ctx = lv_event_get_draw_ctx(event);
     if((item == NULL) || (panel == NULL) || (draw_ctx == NULL)) return;
 
+    /* 对象坐标已经包含滚动偏移，所有手绘元素都应以它为基准。 */
     lv_obj_get_coords(panel, &panel_area);
 
-    /* Draw the colored icon circle directly. This replaces a child object and
-       a child label while preserving the original appearance. */
+    /* 直接画彩色圆形，替代“圆形子对象 + 图标 label”，降低对象树复杂度。 */
     draw_area.x1 = panel_area.x1 + 12;
     draw_area.x2 = draw_area.x1 + 39;
     draw_area.y1 = panel_area.y1 + 15;
@@ -72,7 +80,7 @@ static void MenuPage_ItemDrawEvent(lv_event_t *event)
     circle_dsc.border_opa = LV_OPA_TRANSP;
     lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
 
-    /* Icon glyph. */
+    /* 图标字形需要按字体行高垂直居中，不能假设所有字体高度相同。 */
     lv_draw_label_dsc_init(&label_dsc);
     label_dsc.font = item->icon_font;
     label_dsc.color = lv_color_hex(0xFFFFFFU);
@@ -85,7 +93,7 @@ static void MenuPage_ItemDrawEvent(lv_event_t *event)
     draw_area.y2 = draw_area.y1 + line_height - 1;
     lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->icon_text, NULL);
 
-    /* Item name. */
+    /* 复用 label_dsc 绘制名称，只替换字体、颜色、对齐方式和区域。 */
     label_dsc.font = &lv_font_montserrat_14;
     label_dsc.color = lv_color_hex(0xF2F4F7U);
     label_dsc.align = LV_TEXT_ALIGN_LEFT;
@@ -101,6 +109,7 @@ static void MenuPage_CreateItem(const MenuItem_t *item)
 {
     lv_obj_t *panel;
 
+    /* 每项只保留一个可点击 panel；视觉内容由 DRAW_MAIN 回调完成。 */
     panel = lv_obj_create(s_menu_list);
     lv_obj_set_size(panel, 240, 70);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -108,6 +117,7 @@ static void MenuPage_CreateItem(const MenuItem_t *item)
     lv_obj_set_style_radius(panel, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(panel, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(panel, 0, LV_PART_MAIN);
+    /* 平时透明，避免与屏幕黑色背景重复填充；按下时才显示反馈底色。 */
     lv_obj_set_style_bg_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(panel,
                               lv_color_hex(0x303238U),
@@ -125,6 +135,7 @@ static void MenuPage_CreateItem(const MenuItem_t *item)
                         (void *)item);
 }
 
+/* 创建透明纵向 flex 列表，并按静态配置表生成全部菜单项。 */
 void MenuPage_Create(void)
 {
     lv_obj_t *screen = lv_scr_act();
@@ -135,7 +146,7 @@ void MenuPage_Create(void)
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x05070AU), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
 
-    /* Use the active LCD geometry; portrait mode is 240 x 280. */
+    /* 使用 LCD 当前逻辑宽高；本工程竖屏方向为 240×280。 */
     s_menu_list = lv_obj_create(screen);
     lv_obj_set_size(s_menu_list, LCD_W, LCD_H);
     lv_obj_center(s_menu_list);
@@ -147,15 +158,16 @@ void MenuPage_Create(void)
     lv_obj_set_style_pad_all(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_menu_list, lv_color_hex(0x05070AU), LV_PART_MAIN);
-    /* The screen already paints the same opaque background. Keep the scrolling
-       container transparent so every invalidated pixel is filled only once. */
+    /* 根屏幕已经填充同样的纯色背景，列表透明可让每个脏像素只填充一次。 */
     lv_obj_set_style_bg_opa(s_menu_list, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(s_menu_list, 0, LV_PART_MAIN);
     lv_obj_set_scroll_dir(s_menu_list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_menu_list, LV_SCROLLBAR_MODE_OFF);
+    /* 禁用回弹，避免边缘区域在越界动画中被反复整块重绘。 */
 		lv_obj_clear_flag(s_menu_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
+    /* 用 sizeof 自动计算元素个数，增删菜单项时不需要同步维护常量。 */
     for(i = 0U; i < (sizeof(s_menu_items) / sizeof(s_menu_items[0])); i++) {
         MenuPage_CreateItem(&s_menu_items[i]);
     }
@@ -163,6 +175,7 @@ void MenuPage_Create(void)
 
 void MenuPage_Destroy(void)
 {
+    /* 子 panel 会由 clean 递归删除，只需把模块保存的根指针清空。 */
     lv_obj_clean(lv_scr_act());
     s_menu_list = NULL;
 }

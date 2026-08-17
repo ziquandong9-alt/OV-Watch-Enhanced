@@ -16,6 +16,7 @@ static lv_obj_t *s_compass_heading_label;
 
 static lv_obj_t *CreateBase(const char *title, uint32_t accent)
 {
+    /* 四个传感器页共享标题、数值、详情和状态布局，统一在这里创建。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *title_label;
 
@@ -50,6 +51,7 @@ static lv_obj_t *CreateBase(const char *title, uint32_t accent)
 
 static uint32_t RemainingMinutes(uint32_t deadline)
 {
+    /* deadline 已到时返回 0，否则向上取整为剩余分钟数供用户理解。 */
     int32_t remaining = (int32_t)(deadline - HAL_GetTick());
     if(remaining <= 0) return 0U;
     return ((uint32_t)remaining + 59999U) / 60000U;
@@ -57,6 +59,7 @@ static uint32_t RemainingMinutes(uint32_t deadline)
 
 static void DeletePageTimer(void)
 {
+    /* 页面切换前停止唯一的刷新 timer，防止回调落到下一页面对象上。 */
     if(s_page_timer != NULL) {
         lv_timer_del(s_page_timer);
         s_page_timer = NULL;
@@ -69,6 +72,7 @@ static void DeletePageTimer(void)
 
 static void MotionUpdate(lv_timer_t *timer)
 {
+    /* 主动让 DeviceManager 更新缓存，再把步数和三轴数据格式化到 label。 */
     const Device_MotionData_t *data;
     (void)timer;
     data = DeviceManager_GetMotion();
@@ -85,6 +89,7 @@ static void MotionUpdate(lv_timer_t *timer)
 
 void MotionPage_Create(void)
 {
+    /* Open 提升运动传感器工作模式；Update(NULL) 负责立即填充首屏。 */
     (void)CreateBase("ACTIVITY", 0xDC80E6U);
     lv_label_set_text(s_value_label, "0");
     DeviceManager_MotionOpen();
@@ -94,12 +99,14 @@ void MotionPage_Create(void)
 
 void MotionPage_Destroy(void)
 {
+    /* 先停页面 timer，再让设备层恢复低功耗计步模式。 */
     DeviceManager_MotionClose();
     DeletePageTimer();
 }
 
 static void HeartUpdate(lv_timer_t *timer)
 {
+    /* 测量中显示动态 BPM/raw，结束后显示下次自动测量倒计时。 */
     const Device_HeartData_t *data = DeviceManager_GetHeart();
     (void)timer;
     if(data->connected == 0U) {
@@ -117,6 +124,7 @@ static void HeartUpdate(lv_timer_t *timer)
 
 void HeartPage_Create(void)
 {
+    /* 进入页面即开启新的测量窗口，不沿用旧峰值检测状态。 */
     (void)CreateBase("HEART RATE", 0xFF5050U);
     DeviceManager_StartHeartMeasurement();
     HeartUpdate(NULL);
@@ -125,12 +133,14 @@ void HeartPage_Create(void)
 
 void HeartPage_Destroy(void)
 {
+    /* 离开页面提前关闭心率 LED/AFE，避免后台持续耗电。 */
     DeviceManager_StopHeartMeasurement();
     DeletePageTimer();
 }
 
 static void EnvironmentUpdate(lv_timer_t *timer)
 {
+    /* 页面 timer 只显示缓存；AHT21 的异步转换由 DeviceManager_Process 推进。 */
     const Device_EnvironmentData_t *data = DeviceManager_GetEnvironment();
     int32_t temperature_x10;
     uint32_t humidity_x10;
@@ -154,6 +164,7 @@ static void EnvironmentUpdate(lv_timer_t *timer)
 
 void EnvironmentPage_Create(void)
 {
+    /* Open 把后台 20 分钟周期临时提升到约 1 秒。 */
     (void)CreateBase("ENVIRONMENT", 0x4FCB75U);
     DeviceManager_EnvironmentOpen();
     EnvironmentUpdate(NULL);
@@ -162,12 +173,14 @@ void EnvironmentPage_Create(void)
 
 void EnvironmentPage_Destroy(void)
 {
+    /* 关闭实时模式后，环境采样恢复为后台 20 分钟周期。 */
     DeviceManager_EnvironmentClose();
     DeletePageTimer();
 }
 
 static const char *CompassCardinal(uint16_t degree)
 {
+    /* 将 0~359° 分成八个 45° 方位；边界偏移后实现就近取整。 */
     static const char *directions[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
     return directions[((degree + 22U) / 45U) & 7U];
 }
@@ -176,6 +189,7 @@ static void CompassDirectionLabel(lv_obj_t *parent, const char *text,
                                   lv_align_t align, int16_t x, int16_t y,
                                   uint32_t color)
 {
+    /* 在表盘四周创建 N/E/S/W 方位文字，parent 负责其生命周期。 */
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_14, LV_PART_MAIN);
@@ -185,6 +199,7 @@ static void CompassDirectionLabel(lv_obj_t *parent, const char *text,
 
 static void CompassUpdate(lv_timer_t *timer)
 {
+    /* 更新设备缓存后同步旋转 meter 指针并更新角度/方位文字。 */
     const Device_CompassData_t *data;
     (void)timer;
     DeviceManager_UpdateCompass();
@@ -203,6 +218,7 @@ static void CompassUpdate(lv_timer_t *timer)
 
 void CompassPage_Create(void)
 {
+    /* 指南针使用 LVGL meter 绘制刻度，needle 指示实时磁方位。 */
     lv_obj_t *screen = lv_scr_act();
     lv_meter_scale_t *scale;
     lv_obj_t *center;
@@ -265,6 +281,7 @@ void CompassPage_Create(void)
 
 void CompassPage_Destroy(void)
 {
+    /* 关闭 LSM303 并清空 meter/indicator 指针；indicator 随 meter 一起释放。 */
     DeviceManager_CompassClose();
     DeletePageTimer();
     s_compass_meter = NULL;

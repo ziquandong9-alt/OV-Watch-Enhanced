@@ -10,6 +10,7 @@
 
 #define CALC_INPUT_SIZE 20U
 
+/* 计算器采用“累加器 + 待执行运算符 + 当前输入”的简单状态机。 */
 static lv_obj_t *s_display;
 static lv_obj_t *s_keypad;
 static char s_input[CALC_INPUT_SIZE];
@@ -28,6 +29,7 @@ static const char *s_key_map[] = {
 
 static void Calculator_Reset(void)
 {
+    /* AC 操作把显示和所有运算状态恢复到确定的初始值。 */
     strcpy(s_input, "0");
     s_accumulator = 0.0;
     s_pending_operator = 0;
@@ -37,11 +39,13 @@ static void Calculator_Reset(void)
 
 static void Calculator_ShowInput(void)
 {
+    /* 输入缓冲区始终保持 NUL 结尾，可直接交给 LVGL label。 */
     lv_label_set_text(s_display, s_input);
 }
 
 static void Calculator_ShowValue(double value)
 {
+    /* 将浮点结果格式化到固定长度显示区，并处理超长/不可表示情况。 */
     if((value > 999999999999.0) || (value < -999999999999.0)) {
         strcpy(s_input, "OVERFLOW");
         s_error = 1U;
@@ -54,6 +58,7 @@ static void Calculator_ShowValue(double value)
 
 static uint8_t Calculator_Apply(double right)
 {
+    /* 把 accumulator pending_operator right 归约成新 accumulator。 */
     switch(s_pending_operator) {
     case '+': s_accumulator += right; break;
     case '-': s_accumulator -= right; break;
@@ -76,6 +81,7 @@ static uint8_t Calculator_Apply(double right)
 
 static void Calculator_Append(const char *key)
 {
+    /* 输入长度始终保留一个字节给 '\0'，避免按键连击越界。 */
     size_t length;
 
     if((s_start_new_input != 0U) || (s_error != 0U)) {
@@ -102,6 +108,7 @@ static void Calculator_Append(const char *key)
 
 static void Calculator_KeyEvent(lv_event_t *event)
 {
+    /* btnmatrix 在 VALUE_CHANGED 时提供按键文本，据此推进计算状态机。 */
     uint16_t selected;
     const char *key;
     double value;
@@ -112,6 +119,7 @@ static void Calculator_KeyEvent(lv_event_t *event)
     key = lv_btnmatrix_get_btn_text(s_keypad, selected);
     if(key == NULL) return;
 
+    /* 连续计算属于有效操作，应重新计算自动息屏时间。 */
     AppUI_NotifyActivity();
     if((key[0] >= '0') && (key[0] <= '9') && (key[1] == '\0')) {
         Calculator_Append(key);
@@ -188,6 +196,7 @@ static void Calculator_KeyEvent(lv_event_t *event)
 
 void CalculatorPage_Create(void)
 {
+    /* 键盘由 lv_btnmatrix 一次创建，比 20 个独立按钮更省对象和 RAM。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *title;
 
@@ -233,6 +242,7 @@ void CalculatorPage_Create(void)
 
 void CalculatorPage_Destroy(void)
 {
+    /* 本页没有后台 timer，清空屏幕和静态对象指针即可。 */
     lv_obj_clean(lv_scr_act());
     s_display = NULL;
     s_keypad = NULL;

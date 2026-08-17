@@ -10,6 +10,7 @@ static lv_timer_t *s_timer;
 
 static void Refresh(lv_timer_t *timer)
 {
+    /* 页面只读 BatteryManager 的缓存，刷新 UI 不会触发一次新的 ADC 转换。 */
     const Battery_Data_t *data = BatteryManager_Get();
     (void)timer;
     lv_label_set_text_fmt(s_percent, "%u%%", data->percent);
@@ -24,6 +25,7 @@ static void Refresh(lv_timer_t *timer)
 
 void BatteryPage_Create(void)
 {
+    /* 按“清屏→建静态控件→建定时器→立即首刷”的顺序建立页面。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *title;
     lv_obj_clean(screen);
@@ -52,6 +54,7 @@ void BatteryPage_Create(void)
 
 void BatteryPage_Destroy(void)
 {
+    /* timer 必须先删除，否则下一次回调会访问 clean 后的 label。 */
     if(s_timer != NULL) { lv_timer_del(s_timer); s_timer = NULL; }
     lv_obj_clean(lv_scr_act());
     s_percent = s_voltage = s_state = s_bar = NULL;

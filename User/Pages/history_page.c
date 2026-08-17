@@ -4,6 +4,7 @@
 
 void HistoryPage_Create(void)
 {
+    /* 历史数据已经由 HistoryManager 缓存在 RAM，这里只负责格式化显示。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *title;
     lv_obj_t *list;
@@ -25,6 +26,7 @@ void HistoryPage_Create(void)
     lv_obj_set_style_pad_row(list, 3, 0);
     lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list, 0, 0);
+    /* index=0 是最新一天，页面按时间倒序创建卡片。 */
     for(i = 0U; i < HistoryManager_GetCount(); i++) {
         if(HistoryManager_GetNewest(i, &day) == 0U) continue;
         row = lv_obj_create(list);
@@ -49,4 +51,5 @@ void HistoryPage_Create(void)
     }
 }
 
+/* 本页没有 timer，所有卡片随根屏幕一次清理。 */
 void HistoryPage_Destroy(void) { lv_obj_clean(lv_scr_act()); }

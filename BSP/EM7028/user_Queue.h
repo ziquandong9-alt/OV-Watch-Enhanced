@@ -3,10 +3,11 @@
 #include <stdlib.h>
 #include "main.h"
 
-// 定义队列结构
+/* 心率算法使用的 7 元素固定环形队列，不进行 malloc。 */
 #define QUEUE_SIZE 7
 
 typedef struct {
+    /* front/rear 是数组索引，size 是当前有效元素数。 */
     int8_t front;
     int8_t rear;
     int8_t size;

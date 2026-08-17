@@ -3,6 +3,7 @@
 #define KEY_SCAN_PERIOD_MS       10U
 #define KEY_DEBOUNCE_TIME_MS     30U
 
+/* “原始电平→保持 30 ms→稳定状态→一次性事件”的按键状态机。 */
 static uint32_t s_last_scan_tick;
 static uint32_t s_raw_change_tick;
 static uint8_t s_raw_pressed;
@@ -12,11 +13,13 @@ static uint8_t s_ignore_until_release;
 
 static uint8_t Key1_IsPressed(void)
 {
+    /* KEY1 上拉输入，低电平代表按下。 */
     return (HAL_GPIO_ReadPin(KEY1_GPIO_Port, KEY1_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
 }
 
 void Key_Init(void)
 {
+    /* 用当前物理电平初始化，避免开机立刻产生假事件。 */
     uint32_t now = HAL_GetTick();
 
     s_raw_pressed = Key1_IsPressed();
@@ -29,6 +32,7 @@ void Key_Init(void)
 
 void Key_Proc(void)
 {
+    /* 主循环可高频调用，真正 GPIO 扫描限制为每 10 ms 一次。 */
     uint32_t now = HAL_GetTick();
     uint8_t current_pressed;
 
@@ -70,6 +74,7 @@ void Key_Proc(void)
 
 Key_Event_t Key_GetEvent(void)
 {
+    /* 读后清零的一次性事件邮箱。 */
     Key_Event_t event = s_pending_event;
 
     s_pending_event = KEY_EVENT_NONE;
@@ -78,6 +83,7 @@ Key_Event_t Key_GetEvent(void)
 
 void Key_IgnoreUntilRelease(void)
 {
+    /* 唤醒按压尚未释放时禁止产生新的 PRESSED 事件。 */
     s_ignore_until_release = 1U;
     s_pending_event = KEY_EVENT_NONE;
 }

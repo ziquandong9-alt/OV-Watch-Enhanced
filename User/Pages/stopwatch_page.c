@@ -10,6 +10,7 @@
 
 #define STOPWATCH_MAX_LAPS 8U
 
+/* 运行中时间 = elapsed_before_start + (当前 tick - started_at)。 */
 static uint8_t s_running;
 static uint32_t s_elapsed_before_start;
 static uint32_t s_started_at;
@@ -24,6 +25,7 @@ static lv_obj_t *s_lap_label;
 
 static uint32_t Stopwatch_Elapsed(void)
 {
+    /* HAL tick 无符号相减可跨回绕；暂停时直接返回累计值。 */
     if(s_running != 0U) {
         return s_elapsed_before_start + (uint32_t)(HAL_GetTick() - s_started_at);
     }
@@ -32,6 +34,7 @@ static uint32_t Stopwatch_Elapsed(void)
 
 static void Stopwatch_Format(char *buffer, uint32_t size, uint32_t elapsed)
 {
+    /* 把毫秒拆成分、秒、百分秒；百分秒足以匹配屏幕刷新精度。 */
     uint32_t centiseconds = (elapsed / 10U) % 100U;
     uint32_t seconds = (elapsed / 1000U) % 60U;
     uint32_t minutes = elapsed / 60000U;
@@ -43,6 +46,7 @@ static void Stopwatch_Format(char *buffer, uint32_t size, uint32_t elapsed)
 
 static void Stopwatch_UpdateLaps(void)
 {
+    /* 重建圈速文本到固定缓冲区，写入前始终检查剩余容量。 */
     char text[256];
     char segment_text[20];
     char total_text[20];
@@ -74,6 +78,7 @@ static void Stopwatch_UpdateLaps(void)
 
 static void Stopwatch_Update(lv_timer_t *timer)
 {
+    /* timer 只刷新文字，不改变计时基准，因此偶尔丢帧不会造成时间误差。 */
     char text[24];
     (void)timer;
     Stopwatch_Format(text, sizeof(text), Stopwatch_Elapsed());
@@ -82,6 +87,7 @@ static void Stopwatch_Update(lv_timer_t *timer)
 
 static void Stopwatch_StartEvent(lv_event_t *event)
 {
+    /* Start/Stop 共用按钮：暂停时把本段时间折算进累计值。 */
     (void)event;
     AppUI_NotifyActivity();
     if(s_running != 0U) {
@@ -101,6 +107,7 @@ static void Stopwatch_StartEvent(lv_event_t *event)
 
 static void Stopwatch_LapEvent(lv_event_t *event)
 {
+    /* 运行中记录圈速，停止时同一按钮承担 Reset。 */
     (void)event;
     AppUI_NotifyActivity();
     if(s_running != 0U) {
@@ -140,6 +147,7 @@ static lv_obj_t *Stopwatch_CreateButton(lv_obj_t *parent, const char *text,
 
 void StopwatchPage_Create(void)
 {
+    /* 页面对象可重建，但计时状态用静态变量保留，返回页面仍能继续显示。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *title;
     lv_obj_t *lap_panel;
@@ -197,6 +205,7 @@ void StopwatchPage_Create(void)
 
 void StopwatchPage_Destroy(void)
 {
+    /* 删除显示 timer 不会停止逻辑计时；再次进入时通过 HAL tick 补算。 */
     if(s_timer != NULL) {
         lv_timer_del(s_timer);
         s_timer = NULL;

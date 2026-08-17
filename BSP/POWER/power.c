@@ -9,6 +9,7 @@
 
 void Power_Init(void)
 {
+    /* 配置电池 ADC 输入和低有效充电状态 GPIO。 */
     GPIO_InitTypeDef gpio = {0};
     __HAL_RCC_GPIOA_CLK_ENABLE();
     gpio.Pin = POWER_PIN;
@@ -25,6 +26,7 @@ void Power_Init(void)
 
 uint16_t Power_ReadBatteryMillivolts(void)
 {
+    /* 启动 ADC 转换，将分压后的码值还原为电池端毫伏。 */
     uint32_t sum = 0U;
     uint8_t valid = 0U;
     uint8_t i;
@@ -42,11 +44,13 @@ uint16_t Power_ReadBatteryMillivolts(void)
 
 uint8_t Power_IsCharging(void)
 {
+    /* 把充电管理芯片的低有效状态脚统一转换成 0/1。 */
     return (HAL_GPIO_ReadPin(CHARGE_PORT, CHARGE_PIN) == GPIO_PIN_RESET) ? 1U : 0U;
 }
 
 uint8_t Power_VoltageToPercent(uint16_t mv)
 {
+    /* 分段线性近似锂电池放电平台，比全区间一条直线更合理。 */
     typedef struct { uint16_t mv; uint8_t percent; } Point;
     static const Point curve[] = {
         {3300U, 0U}, {3450U, 5U}, {3680U, 10U}, {3740U, 20U},

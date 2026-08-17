@@ -6,7 +6,11 @@
 LV_FONT_DECLARE(ui_font_iconfont30);
 LV_FONT_DECLARE(ui_font_iconfont34);
 
-/* UTF-8 encodings of the original author's private-use icon glyphs. */
+/*
+ * 图标字体把图形放在 Unicode 私用区，下面写的是这些码点的 UTF-8 字节。
+ * 阅读提示：若图标显示成方框，先检查 label 使用的字体是否真的包含对应码点，
+ * 不要把问题误判为字符串编码错误。
+ */
 #define MENU_ICON_CALENDAR       "\xEE\x98\x81" /* U+E601 */
 #define MENU_ICON_TIMER          "\xEE\x98\xB3" /* U+E633 */
 #define MENU_ICON_HEART_RATE     "\xEE\x9D\xA2" /* U+E762 */

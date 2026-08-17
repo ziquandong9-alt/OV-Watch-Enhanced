@@ -6,16 +6,16 @@
 
 
 
-// 初始化全部us软件定时器
+/* 初始化全部微秒软件定时器槽。 */
 void softUsTimer_Init(void);
 
-// 注册us定时器
+/* 注册/重启指定槽；period_us 不能为 0，callback 不能为 NULL。 */
 bool softUsTimer_Register(uint8_t id, uint32_t period_us, void (*callback)(void));
 
 // 停止指定定时器
 void softUsTimer_Stop(uint8_t id);
 
-// 主循环轮询函数，必须放在while(1)里循环调用
+/* 主循环轮询入口；调用越频繁，微秒定时误差越小。 */
 void softUsTimer_TickHandler(void);
 
 // 弱空回调

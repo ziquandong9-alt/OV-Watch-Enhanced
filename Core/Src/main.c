@@ -114,31 +114,32 @@ int main(void)
   MX_RTC_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+	/* 触摸使用软件 I2C，先准备 GPIO，再硬复位控制器清除上电残留状态。 */
 	CST816_GPIO_Init();
 	CST816_RESET();
+	/* 旧毫秒软件定时器为 LVGL handler 提供下一次运行调度。 */
 	softTimer_init();
-  // HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+	/* 初始化 ST7789，并在 LVGL 接管屏幕前清成确定的黑色。 */
 	LCD_Init();
 	LCD_Fill(0U, 0U, LCD_W, LCD_H, BLACK);
-//	LCD_FPS_Test(5000);
-//    LCD_Fill(0,0, LCD_W, LCD_H, BLACK);
-//    delay_ms(10);
-//    LCD_Set_Light(50);
-//    LCD_ShowString(72,LCD_H/2,(uint8_t*)"Welcome!", WHITE, BLACK, 24, 0);//12*6,16*8,24*12,32*16
-//		Draw_Circle(120, 240, 50, WHITE);
 
+
+	/* LVGL 核心必须先初始化，再注册显示和触摸端口。 */
 	lv_init();
 	lv_port_disp_init();
 	lv_port_indev_init();
 	
+	/* 业务模块先于 UI 初始化，确保首个表盘能立即取得有效缓存和设置。 */
 	NotificationManager_Init();
 	DeviceManager_Init();
 	BatteryManager_Init();
 	BLEManager_Init();
 	PowerManager_Init();
 	Key_Init();
+	/* AppUI_Init 创建第一个表盘和状态栏，是界面对象树的起点。 */
 	AppUI_Init();
 	
+	/* 主动启动 LVGL 第一次 handler，之后由软件定时器节拍推进。 */
 	lv_flush_start();
   /* USER CODE END 2 */
 
@@ -146,17 +147,22 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+		/* STOP 时 SPI/LCD 已关闭，禁止服务显示 DMA 和 LVGL 刷新。 */
 		if(AppUI_IsStop() == 0U) {
 			LCD_Service();
 			lv_flush_proc();
 		}
+    /* 各 Manager 都是合作式状态机：每轮快速检查 deadline，禁止长阻塞。 */
     DeviceManager_Process();
     if(AppUI_IsStop() == 0U) BatteryManager_Process();
+    /* BLE 在主循环解析 ISR 放入环形队列的数据，避免中断中执行协议逻辑。 */
     BLEManager_Process();
+    /* 扫描消抖后取出一次性按键事件，再交给 UI 解释其页面语义。 */
     Key_Proc();
     if(Key_GetEvent() == KEY_EVENT_KEY1_PRESSED) {
         AppUI_HandleKey1();
     }
+    /* 最后推进页面切换和低功耗状态，确保本轮设备/输入事件都已产生。 */
     AppUI_Process();
     /* USER CODE END WHILE */
 

@@ -1,4 +1,6 @@
 #include "lcd.h"
+
+/* ST7789 像素层：LVGL 使用异步 DMA 刷块，其余点线文字函数供裸机测试。 */
 #include "lcd_init.h"
 #include "lcdfont.h"
 #include "spi.h"
@@ -23,6 +25,7 @@ static LCD_CallbackFunc_t s_flush_complete_callback = NULL;
 
 static HAL_StatusTypeDef LCD_StartNextDMAChunk(void)
 {
+    /* DMA 的 16 位 NDTR 放不下超大传输，因此把像素流拆成连续 chunk。 */
     uint32_t chunk_bytes;
 
     if ((s_next_dma_address == NULL) || (s_remaining_dma_bytes == 0U))
@@ -84,6 +87,7 @@ static HAL_StatusTypeDef LCD_StartDMAChain(const uint8_t *buffer,
                                            uint32_t byte_count,
                                            uint8_t notify_flush)
 {
+    /* 建立整条传输的地址/剩余长度状态，再启动第一个 chunk。 */
     if ((buffer == NULL) || (byte_count == 0U))
     {
         return HAL_ERROR;
@@ -105,6 +109,7 @@ static HAL_StatusTypeDef LCD_StartDMAChain(const uint8_t *buffer,
 
 void LCD_Service(void)
 {
+    /* 主循环收尾 DMA 并执行完成回调；不在中断里直接调用 LVGL。 */
     LCD_CallbackFunc_t callback;
 
     if (s_dma_state == LCD_DMA_WAIT_SPI_IDLE)
@@ -153,6 +158,7 @@ void LCD_Service(void)
 
 void LCD_WaitForDMA(void)
 {
+    /* 发 LCD 命令或关闭 SPI 前必须等像素 DMA 完全结束。 */
     while (s_dma_state != LCD_DMA_IDLE)
     {
         LCD_Service();
@@ -161,12 +167,14 @@ void LCD_WaitForDMA(void)
 
 uint8_t LCD_IsDMABusy(void)
 {
+    /* 对外只暴露忙/闲，不泄露内部 DMA 阶段。 */
     LCD_Service();
     return (s_dma_state != LCD_DMA_IDLE) ? 1U : 0U;
 }
 
 void LCD_Set_Flush_Complete_Callback(LCD_CallbackFunc_t callback)
 {
+    /* LVGL port 注册完成通知，DMA 链结束后归还 draw buffer。 */
     s_flush_complete_callback = callback;
 }
 
@@ -176,6 +184,7 @@ HAL_StatusTypeDef LCD_Color_Fill_DMA(uint16_t x1,
                                      uint16_t y2,
                                      const uint16_t *pixels)
 {
+    /* 设置地址窗口后，把 RGB565 缓冲区异步发送到矩形区域。 */
     uint32_t width;
     uint32_t height;
     uint32_t byte_count;
@@ -212,6 +221,7 @@ void LCD_Color_Fill(uint16_t x1,
                     uint16_t y2,
                     uint16_t *pixels)
 {
+    /* 阻塞版本用于初始化/测试；正常界面刷新优先使用 DMA。 */
     (void)LCD_Color_Fill_DMA(x1, y1, x2, y2, pixels);
 }
 
@@ -221,6 +231,7 @@ void LCD_Fill(uint16_t x1,
               uint16_t y2,
               uint16_t color)
 {
+    /* 用固定行块重复填纯色，避免分配一份全屏临时缓冲。 */
     /* uint32_t 数组同时保证 4 字节对齐；每次写入两个相同的 RGB565 像素。 */
     static uint32_t chunk_buffer_words[
         (LCD_W * LCD_FILL_CHUNK_LINES + 1U) / 2U
@@ -298,6 +309,7 @@ void LCD_Fill(uint16_t x1,
 
 void LCD_DrawPoint(uint16_t x, uint16_t y, uint16_t color)
 {
+    /* 单点会产生一次地址窗口命令，批量绘制时效率很低。 */
     LCD_WaitForDMA();
     LCD_Address_Set(x,
                     (uint16_t)(y + LCD_Y_OFFSET),
@@ -312,6 +324,7 @@ void LCD_DrawLine(uint16_t x1,
                   uint16_t y2,
                   uint16_t color)
 {
+    /* 整数 Bresenham 算法连接两点，不使用浮点。 */
     int32_t dx = (x2 >= x1) ? (int32_t)(x2 - x1) : (int32_t)(x1 - x2);
     int32_t sx = (x1 < x2) ? 1 : -1;
     int32_t dy = (y2 >= y1) ? -(int32_t)(y2 - y1) : -(int32_t)(y1 - y2);
@@ -348,6 +361,7 @@ void LCD_DrawRectangle(uint16_t x1,
                        uint16_t y2,
                        uint16_t color)
 {
+    /* 矩形边框由四条直线组成，不填内部。 */
     LCD_DrawLine(x1, y1, x2, y1, color);
     LCD_DrawLine(x1, y1, x1, y2, color);
     LCD_DrawLine(x1, y2, x2, y2, color);
@@ -356,6 +370,7 @@ void LCD_DrawRectangle(uint16_t x1,
 
 void Draw_Circle(uint16_t x0, uint16_t y0, uint8_t radius, uint16_t color)
 {
+    /* 中点圆算法利用八向对称，只计算一个八分圆。 */
     int32_t a = 0;
     int32_t b = radius;
 
@@ -382,6 +397,7 @@ void LCD_ShowChinese(uint16_t x, uint16_t y, uint8_t *text,
                      uint16_t foreground, uint16_t background,
                      uint8_t size, uint8_t overlay)
 {
+    /* 从中文字模表查编码并按指定字号逐像素绘制。 */
     while (*text != 0U)
     {
         if (size == 12U)
@@ -400,6 +416,7 @@ void LCD_ShowChinese(uint16_t x, uint16_t y, uint8_t *text,
     }
 }
 
+/* 通用渲染器：读取字模位，为 1 画前景，否则按 overlay 处理背景。 */
 static void LCD_ShowChineseGlyph(uint16_t x, uint16_t y,
                                  const uint8_t *mask, uint16_t mask_size,
                                  uint8_t glyph_size,
@@ -447,6 +464,7 @@ static void LCD_ShowChineseGlyph(uint16_t x, uint16_t y,
     }
 }
 
+/* 在 12×12 字模表查找并交给通用渲染器。 */
 void LCD_ShowChinese12x12(uint16_t x, uint16_t y, uint8_t *text,
                          uint16_t foreground, uint16_t background,
                          uint8_t size, uint8_t overlay)
@@ -467,6 +485,7 @@ void LCD_ShowChinese12x12(uint16_t x, uint16_t y, uint8_t *text,
     }
 }
 
+/* 在 16×16 字模表中查找两个字节编码。 */
 void LCD_ShowChinese16x16(uint16_t x, uint16_t y, uint8_t *text,
                          uint16_t foreground, uint16_t background,
                          uint8_t size, uint8_t overlay)
@@ -487,6 +506,7 @@ void LCD_ShowChinese16x16(uint16_t x, uint16_t y, uint8_t *text,
     }
 }
 
+/* 24×24 字模清晰，但逐点透明绘制的 SPI 开销更高。 */
 void LCD_ShowChinese24x24(uint16_t x, uint16_t y, uint8_t *text,
                          uint16_t foreground, uint16_t background,
                          uint8_t size, uint8_t overlay)
@@ -507,6 +527,7 @@ void LCD_ShowChinese24x24(uint16_t x, uint16_t y, uint8_t *text,
     }
 }
 
+/* 32×32 适合大标题；正常 LVGL 页面优先使用字体引擎。 */
 void LCD_ShowChinese32x32(uint16_t x, uint16_t y, uint8_t *text,
                          uint16_t foreground, uint16_t background,
                          uint8_t size, uint8_t overlay)
@@ -531,6 +552,7 @@ void LCD_ShowChar(uint16_t x, uint16_t y, uint8_t character,
                   uint16_t foreground, uint16_t background,
                   uint8_t size, uint8_t overlay)
 {
+    /* 从 ASCII 字模取位；mode 决定背景透明或同时写背景色。 */
     uint8_t temp;
     uint8_t width;
     uint8_t bit;
@@ -587,6 +609,7 @@ void LCD_ShowString(uint16_t x, uint16_t y, const uint8_t *text,
                     uint16_t foreground, uint16_t background,
                     uint8_t size, uint8_t overlay)
 {
+    /* 逐字符推进坐标，复用 LCD_ShowChar。 */
     if (text == NULL)
         return;
 
@@ -600,6 +623,7 @@ void LCD_ShowString(uint16_t x, uint16_t y, const uint8_t *text,
 
 uint32_t mypow(uint8_t base, uint8_t exponent)
 {
+    /* 小整数幂供数字逐位提取，避免引入浮点 pow。 */
     uint32_t result = 1U;
     while (exponent-- != 0U)
         result *= base;
@@ -610,6 +634,7 @@ void LCD_ShowIntNum(uint16_t x, uint16_t y, uint16_t number,
                     uint8_t length, uint16_t foreground,
                     uint16_t background, uint8_t size)
 {
+    /* 从高位到低位显示定长整数并处理前导零。 */
     uint8_t position;
     uint8_t digit;
     uint8_t started = 0U;
@@ -635,6 +660,7 @@ void LCD_ShowFloatNum1(uint16_t x, uint16_t y, float number,
                        uint8_t length, uint16_t foreground,
                        uint16_t background, uint8_t size)
 {
+    /* 按固定小数位放大后复用整数数字绘制逻辑。 */
     uint8_t position;
     uint8_t digit;
     uint8_t width = size / 2U;
@@ -660,6 +686,7 @@ void LCD_ShowPicture(uint16_t x, uint16_t y,
                      uint16_t length, uint16_t width,
                      const uint8_t picture[])
 {
+    /* 图片必须是与 LCD 字节序一致的连续 RGB565 数据。 */
     uint32_t pixel;
     uint32_t pixel_count;
 
@@ -680,6 +707,7 @@ void LCD_ShowPicture(uint16_t x, uint16_t y,
 
 void LCD_DMA_TX_IRQHandler(void)
 {
+    /* 中断只清标志并推进 chunk，LVGL 完成回调留给主循环。 */
     if (LL_DMA_IsActiveFlag_TE2(LCD_DMA) != 0U)
     {
         LL_DMA_ClearFlag_TE2(LCD_DMA);

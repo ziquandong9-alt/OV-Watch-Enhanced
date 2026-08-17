@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+/* 创建/销毁日期 roller 页面；必须由 AppUI 生命周期调用。 */
 void DateSettingPage_Create(void);
 void DateSettingPage_Destroy(void);
 

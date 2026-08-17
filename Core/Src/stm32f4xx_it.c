@@ -191,6 +191,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+	/* 每 1 ms 推进旧软件定时器；回调应保持短小，避免拉长 SysTick 中断。 */
 	softTimer_TickHandler();
   /* USER CODE END SysTick_IRQn 1 */
 }
@@ -236,6 +237,7 @@ void USART1_IRQHandler(void)
 void DMA2_Stream2_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream2_IRQn 0 */
+	/* LCD 使用 LL 直接管理 Stream2，因此由专用处理函数清标志并推进 DMA 链。 */
 	LCD_DMA_TX_IRQHandler();
   /* USER CODE END DMA2_Stream2_IRQn 0 */
   /* USER CODE BEGIN DMA2_Stream2_IRQn 1 */

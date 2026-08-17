@@ -5,6 +5,8 @@
 #define Delayms(X) HAL_Delay(X)
 
 #define LSM303_CLK_ENABLE __HAL_RCC_GPIOB_CLK_ENABLE()
+
+/* LSM303DLH 同时包含加速度计和磁力计，本文件还提供倾斜补偿方位计算。 */
 iic_bus_t LSM303_bus = 
 {
 	.IIC_SDA_PORT = GPIOB,
@@ -27,6 +29,7 @@ NOTICE:	the LSM303 can not use mutiple read!
 *************************************************************************************************************************/
 unsigned char LSM303_ReadOneReg(unsigned char RegAddr)
 {
+    /* 从加速度计 I2C 地址读取单寄存器。 */
 	unsigned char dat;
 	unsigned char SlaveAddr = (RegAddr>0x19)?LSM303_SlaveAddr_A:LSM303_SlaveAddr_M;
 	dat = IIC_Read_One_Byte(&LSM303_bus, SlaveAddr,RegAddr);
@@ -41,6 +44,7 @@ unsigned char LSM303_ReadOneReg(unsigned char RegAddr)
 *************************************************************************************************************************/
 void LSM303_ReadMultiReg(unsigned char RegAddr, unsigned char RegNum, unsigned char DataBuff[])
 {
+    /* 连续读取时设置地址自动递增位，DataBuff 至少有 RegNum 字节。 */
 	unsigned char i;
 	unsigned char SlaveAddr = (RegAddr>0x19)?LSM303_SlaveAddr_A:LSM303_SlaveAddr_M;
 	//IIC_Read_Multi_Byte(SlaveAddr,RegAddr,RegNum,DataBuff);
@@ -58,6 +62,7 @@ void LSM303_ReadMultiReg(unsigned char RegAddr, unsigned char RegNum, unsigned c
 *************************************************************************************************************************/
 unsigned char LSM303_Temp_ReadOneReg(unsigned char RegAddr)
 {
+    /* 从磁力计/温度复合器件地址读取单寄存器。 */
 	unsigned char dat;
 	dat = IIC_Read_One_Byte(&LSM303_bus, LSM303_SlaveAddr_M,RegAddr);
 	return dat;
@@ -71,6 +76,7 @@ unsigned char LSM303_Temp_ReadOneReg(unsigned char RegAddr)
 *************************************************************************************************************************/
 void LSM303_WriteOneReg(unsigned char RegAddr, unsigned char dat)
 {
+    /* 向加速度计地址写配置寄存器。 */
 	unsigned char SlaveAddr = (RegAddr>0x19)?LSM303_SlaveAddr_A:LSM303_SlaveAddr_M;
 	IIC_Write_One_Byte(&LSM303_bus, SlaveAddr,RegAddr,dat);
 }
@@ -83,6 +89,7 @@ void LSM303_WriteOneReg(unsigned char RegAddr, unsigned char dat)
 *************************************************************************************************************************/
 unsigned char LSM303DLH_Init()
 {
+    /* 初始化软件 I2C，探测器件并设置量程、速率和磁力计模式。 */
 	unsigned char temp;
 	unsigned char retry = 0;
 	
@@ -137,6 +144,7 @@ unsigned char LSM303DLH_Init()
 *************************************************************************************************************************/
 void LSM303DLH_Sleep()
 {
+    /* 将磁力计/加速度计切到低功耗或掉电模式。 */
 	LSM303_WriteOneReg(LSM303_MR_REG_M,0x03);
 	LSM303_WriteOneReg(LSM303_CTRL_REG1_A,0x0f);		
 }
@@ -149,6 +157,7 @@ void LSM303DLH_Sleep()
 *************************************************************************************************************************/
 void LSM303DLH_Wakeup()
 {
+    /* 恢复页面实时指南针所需的输出速率。 */
 	LSM303_WriteOneReg(LSM303_MR_REG_M,0x00);//磁场传感器连续转换模式
 	LSM303_WriteOneReg(LSM303_CTRL_REG1_A,0x2f);//low power mode, 10Hz速度	
 }
@@ -161,6 +170,7 @@ void LSM303DLH_Wakeup()
 *************************************************************************************************************************/
 void LSM303_ReadAcceleration(int16_t *Xa, int16_t *Ya, int16_t *Za)
 {
+    /* 读取三轴高低字节并按器件数据格式对齐成有符号值。 */
 	uint8_t buff[6];
 	int16_t temp;
 	LSM303_ReadMultiReg(LSM303_OUT_X_L_A,6,buff);
@@ -189,6 +199,7 @@ void LSM303_ReadAcceleration(int16_t *Xa, int16_t *Ya, int16_t *Za)
 *************************************************************************************************************************/
 void LSM303_ReadMagnetic(int16_t *Xm, int16_t *Ym, int16_t *Zm)
 {
+    /* 注意磁力计寄存器轴顺序可能是 X、Z、Y，组合时不能照搬 XYZ。 */
 	uint8_t buff[6];
 	int16_t temp;
 	LSM303_ReadMultiReg(LSM303_OUT_X_H_M,6, buff);
@@ -218,6 +229,7 @@ void LSM303_ReadMagnetic(int16_t *Xm, int16_t *Ym, int16_t *Zm)
 *************************************************************************************************************************/
 void LSM303_ReadTemperature(int16_t *Temp)
 {
+    /* 组合温度高低字节；物理换算取决于数据手册比例。 */
 	uint8_t buff[2];
 	int16_t temp;
 	IIC_Read_Multi_Byte(&LSM303_bus, LSM303_SlaveAddr_M, TEMP_OUT_H_M, 2, buff);
@@ -236,6 +248,7 @@ void LSM303_ReadTemperature(int16_t *Temp)
 *************************************************************************************************************************/
 int LSM303DLH_CalculationZAxisAngle(int16_t Xa, int16_t Ya, int16_t Za)
 {
+    /* 由重力三轴计算姿态角，静止时结果最可信。 */
 	double A;
 	float fx,fy,fz;
 	
@@ -272,6 +285,7 @@ int LSM303DLH_CalculationZAxisAngle(int16_t Xa, int16_t Ya, int16_t Za)
 *************************************************************************************************************************/
 int LSM303DLH_CalculationXAxisAngle(int16_t Xa, int16_t Ya, int16_t Za)
 {
+    /* 使用 atan2 计算 X 轴姿态角并转换为度。 */
 	double A;
 	float fx,fy,fz;
 	
@@ -308,6 +322,7 @@ int LSM303DLH_CalculationXAxisAngle(int16_t Xa, int16_t Ya, int16_t Za)
 *************************************************************************************************************************/
 float Azimuth_Calculate(int16_t Xa, int16_t Ya, int16_t Za, int16_t Xm, int16_t Ym, int16_t Zm)
 {
+    /* 用重力向量补偿手表倾斜，再由 atan2 得到水平面磁方位角。 */
 	float pitch, roll, Hy, Hx, Azimuth; 
 	pitch   = atan2f(Xa, sqrtf(Ya * Ya + Za * Za));
 	roll    = atan2f(Ya, sqrtf(Xa * Xa + Za * Za));

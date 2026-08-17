@@ -13,6 +13,17 @@
 
 #include <string.h>
 
+/*
+ * DeviceManager 是“硬件驱动”和“页面 UI”之间的业务层：
+ * - BSP 只负责读写芯片寄存器；
+ * - 本模块决定采样周期、滤波、告警、每日统计和 EEPROM 持久化；
+ * - 页面只读取这里的缓存，不直接频繁访问 I2C 传感器。
+ *
+ * 本文件没有线程，所有 ProcessXxx() 都由主循环合作式调度。因此任何函数
+ * 都不应长时间阻塞；传感器转换采用“启动→等待截止时间→读取”的状态机。
+ */
+
+/* 周期常量集中在这里，便于统一评估功耗、响应速度和总线占用。 */
 #define ENVIRONMENT_PERIOD_MS       (20UL * 60UL * 1000UL)
 #define ENVIRONMENT_LIVE_PERIOD_MS  1000UL
 #define ENVIRONMENT_CONVERT_MS      85UL
@@ -37,6 +48,7 @@
 #define FALL_STILL_DYNAMIC          360L
 #define FALL_ALERT_COOLDOWN_MS      (10UL * 60UL * 1000UL)
 
+/* 0x08/0x10/0x18 是旧版固定记录；新版使用多槽循环记录以分摊 EEPROM 磨损。 */
 #define EEPROM_LEGACY_TIME_ADDRESS      0x08U
 #define EEPROM_LEGACY_SETTINGS_ADDRESS  0x10U
 #define EEPROM_LEGACY_STEPS_ADDRESS     0x18U
@@ -55,20 +67,24 @@
 #define DEFAULT_WORK_BRIGHTNESS     50U
 #define DEFAULT_AMBIENT_BRIGHTNESS  5U
 
+/* 四类传感器的“最后有效值”缓存，Getter 只返回这些结构的只读地址。 */
 static Device_EnvironmentData_t s_environment;
 static Device_HeartData_t s_heart;
 static Device_MotionData_t s_motion;
 static Device_CompassData_t s_compass;
+/* 设置与持久化状态。next_slot/next_sequence 共同组成掉电安全循环日志。 */
 static uint8_t s_eeprom_connected;
 static uint8_t s_wrist_wake_enabled;
 static uint8_t s_ambient_enabled = 1U;
 static uint8_t s_working_brightness = DEFAULT_WORK_BRIGHTNESS;
 static uint8_t s_ambient_brightness = DEFAULT_AMBIENT_BRIGHTNESS;
 static uint8_t s_watch_face;
+/* 抬腕检测保存上次姿态并生成边沿事件，而不是持续报告电平。 */
 static uint8_t s_wrist_was_up;
 static uint8_t s_wrist_raise_event;
 static uint8_t s_wrist_lower_event;
 static uint8_t s_compass_open;
+/* 页面打开状态会临时提高环境/指南针采样频率，关闭后恢复省电。 */
 static uint8_t s_environment_open;
 static uint8_t s_environment_converting;
 static uint32_t s_environment_ready_ms;
@@ -80,6 +96,7 @@ static uint8_t s_time_next_slot;
 static uint8_t s_time_next_sequence;
 static uint8_t s_steps_next_slot;
 static uint8_t s_steps_next_sequence;
+/* 各合作式任务的下一截止时刻；均用 IsDue() 处理 tick 回绕。 */
 static uint32_t s_next_wrist_sample_ms;
 static uint32_t s_next_step_sample_ms;
 static uint32_t s_next_step_date_check_ms;
@@ -89,6 +106,7 @@ static uint8_t s_step_peak_armed;
 static uint8_t s_step_year;
 static uint8_t s_step_month;
 static uint8_t s_step_day;
+/* 心率算法状态：直流基线、上次交流值、峰间隔和 BPM 平滑累计。 */
 static uint32_t s_heart_started_ms;
 static uint32_t s_next_heart_sample_ms;
 static uint32_t s_heart_dc;
@@ -99,6 +117,7 @@ static uint8_t s_heart_bpm_count;
 static int8_t s_heart_abnormal_kind;
 static uint8_t s_heart_abnormal_count;
 static uint32_t s_heart_last_alert_ms;
+/* 健康告警不是一次越界就触发，而是记录持续时间、连续次数和冷却时间。 */
 static uint8_t s_environment_exposure_active;
 static uint8_t s_environment_exposure_kind;
 static uint32_t s_environment_exposure_started_ms;
@@ -109,6 +128,7 @@ static uint8_t s_fall_candidate;
 static uint8_t s_fall_still_samples;
 static uint32_t s_fall_impact_ms;
 static uint32_t s_fall_last_alert_ms;
+/* 当天累计量在日期变化时汇总成 History_Day_t，然后清零开始新一天。 */
 static uint32_t s_daily_heart_sum;
 static uint16_t s_daily_heart_count;
 static float s_daily_temperature_sum;
@@ -134,6 +154,7 @@ static void ProcessStepDate(uint32_t now);
 static void ProcessSedentary(uint32_t now);
 static void ProcessFall(uint32_t now, int32_t magnitude, int32_t dynamic);
 static void EvaluateHeartAlert(uint32_t now);
+/* 判断异常环境是否持续足够久，并应用通知冷却时间。 */
 static void EvaluateEnvironmentAlert(uint32_t now,
                                      float temperature,
                                      float humidity);
@@ -141,13 +162,16 @@ static void RecordCompletedDay(void);
 
 void DeviceManager_Init(void)
 {
+    /* 初始化顺序：清缓存→恢复 EEPROM→探测硬件→安排任务截止时间。 */
     uint32_t now = HAL_GetTick();
 
+    /* 结构体整体清零可确保 connected/updated_at 等初始状态一致。 */
     memset(&s_environment, 0, sizeof(s_environment));
     memset(&s_heart, 0, sizeof(s_heart));
     memset(&s_motion, 0, sizeof(s_motion));
     memset(&s_compass, 0, sizeof(s_compass));
 
+    /* 外置 24C02 不可用时仍允许手表运行，只是不再持久化设置和历史。 */
     EEPROM_Init();
     s_eeprom_connected = (EEPROM_Check() == 0U) ? 1U : 0U;
     if(s_eeprom_connected != 0U) {
@@ -158,10 +182,11 @@ void DeviceManager_Init(void)
     }
     else HistoryManager_Init(0U);
 
+    /* BSP 约定返回 0 表示成功，这里统一转换成 connected 布尔值。 */
     s_motion.connected = (MPU_Init() == 0U) ? 1U : 0U;
     if(s_motion.connected != 0U) {
         s_wrist_was_up = MPU_isHorizontal();
-        /* Keep only the low-power accelerometer alive for step counting. */
+        /* 仅保留低功耗加速度计用于计步；抬腕关闭时同时关闭运动中断。 */
         MPU_Wakeup();
         if(s_wrist_wake_enabled != 0U) MPU_Motion_Init();
         else (void)MPU_Write_Byte(MPU_INT_EN_REG, 0x00U);
@@ -173,6 +198,7 @@ void DeviceManager_Init(void)
         LSM303DLH_Sleep();
     }
 
+    /* 所有 deadline 从同一 now 建立，避免初始化耗时造成相互漂移。 */
     s_next_step_save_ms = now + EEPROM_STEP_SAVE_PERIOD_MS;
     s_next_wrist_sample_ms = now + WRIST_SAMPLE_PERIOD_MS;
     s_next_step_sample_ms = now;
@@ -183,18 +209,21 @@ void DeviceManager_Init(void)
     s_fall_candidate = 0U;
     s_heart_abnormal_count = 0U;
     s_environment_exposure_active = 0U;
+    /* 开机主动采一组环境和心率，使表盘无需等待第一个长周期。 */
     DeviceManager_ForceEnvironmentUpdate();
     DeviceManager_StartHeartMeasurement();
 }
 
 void DeviceManager_Process(void)
 {
+    /* 主循环调度入口：各子任务自己检查是否到期，未到期立即返回。 */
     uint32_t now = HAL_GetTick();
 
     ProcessEnvironment(now);
     ProcessSteps(now);
     ProcessStepDate(now);
     ProcessSedentary(now);
+    /* 心率默认每 15 分钟启动一次 12 秒测量窗口。 */
     if((s_heart.measuring == 0U) &&
        (IsDue(now, s_heart.next_update_ms) != 0U)) {
         DeviceManager_StartHeartMeasurement();
@@ -202,6 +231,7 @@ void DeviceManager_Process(void)
     ProcessHeart(now);
     ProcessWrist(now);
 
+    /* EEPROM 有寿命限制：半小时检查一次且步数变化后才真正写。 */
     if(IsDue(now, s_next_step_save_ms) != 0U) {
         if(s_motion.steps_today != s_last_saved_steps) SaveSteps();
         s_next_step_save_ms = now + EEPROM_STEP_SAVE_PERIOD_MS;
@@ -210,14 +240,17 @@ void DeviceManager_Process(void)
 
 static void ProcessEnvironment(uint32_t now)
 {
+    /* AHT21 转换是异步两阶段：先发启动命令，85 ms 后再读结果。 */
     float humidity;
     float temperature;
 
     if(s_environment.connected == 0U) return;
 
+    /* converting=1 表示传感器正在内部测量，不能在此期间重复启动。 */
     if(s_environment_converting != 0U) {
         if(IsDue(now, s_environment_ready_ms) == 0U) return;
         s_environment_converting = 0U;
+        /* 同时检查驱动返回值和物理范围，坏样本不会覆盖最后有效值。 */
         if((AHT_ReadMeasurement(&humidity, &temperature) == 0U) &&
            (temperature > -40.0f) && (temperature < 85.0f) &&
            (humidity >= 0.0f) && (humidity <= 100.0f)) {
@@ -229,6 +262,7 @@ static void ProcessEnvironment(uint32_t now)
             if(s_daily_environment_count < 65535U) s_daily_environment_count++;
             EvaluateEnvironmentAlert(now, temperature, humidity);
         }
+        /* 页面打开时 1 秒刷新，后台则降为 20 分钟以节省功耗。 */
         s_environment.next_update_ms = now +
             ((s_environment_open != 0U) ? ENVIRONMENT_LIVE_PERIOD_MS :
                                          ENVIRONMENT_PERIOD_MS);
@@ -250,6 +284,7 @@ static void EvaluateEnvironmentAlert(uint32_t now,
     const char *title = "Environment alert";
     const char *message = NULL;
 
+    /* kind 标识当前越界类型；正常范围会立即取消正在计时的暴露状态。 */
     if(temperature >= 35.0f) kind = 1U;
     else if(temperature <= 5.0f) kind = 2U;
     else if(humidity >= 85.0f) kind = 3U;
@@ -261,6 +296,7 @@ static void EvaluateEnvironmentAlert(uint32_t now,
         return;
     }
 
+    /* 刚越界或越界类型改变时重新计时，不能立即弹通知。 */
     if((s_environment_exposure_active == 0U) ||
        (kind != s_environment_exposure_kind)) {
         s_environment_exposure_active = 1U;
@@ -269,6 +305,7 @@ static void EvaluateEnvironmentAlert(uint32_t now,
         return;
     }
 
+    /* 持续 45 分钟并且距离上次提醒超过 4 小时才允许再次推送。 */
     if((uint32_t)(now - s_environment_exposure_started_ms) <
        ENVIRONMENT_EXPOSURE_MS) return;
     if((s_environment_last_alert_ms != 0U) &&
@@ -301,11 +338,13 @@ static void EvaluateEnvironmentAlert(uint32_t now,
 
 uint8_t DeviceManager_CanEnterStop(void)
 {
+    /* 心率窗口需要 50 ms 连续采样；测量期间进入 STOP 会破坏峰值间隔。 */
     return (s_heart.measuring == 0U) ? 1U : 0U;
 }
 
 void DeviceManager_ForceEnvironmentUpdate(void)
 {
+    /* 强制接口允许开机/页面进入时同步得到首个样本，代价是一次阻塞读取。 */
     uint32_t now = HAL_GetTick();
     float humidity;
     float temperature;
@@ -327,6 +366,7 @@ void DeviceManager_ForceEnvironmentUpdate(void)
 
 void DeviceManager_EnvironmentOpen(void)
 {
+    /* 打开页面后把 deadline 设为当前时刻，下一轮主循环立即启动转换。 */
     s_environment_open = 1U;
     s_environment.next_update_ms = HAL_GetTick();
 }
@@ -334,7 +374,7 @@ void DeviceManager_EnvironmentOpen(void)
 void DeviceManager_EnvironmentClose(void)
 {
     s_environment_open = 0U;
-    /* Finish an in-flight conversion, then resume the 20-minute schedule. */
+    /* 已开始的转换应读完，未开始时则直接恢复 20 分钟后台周期。 */
     if(s_environment_converting == 0U) {
         s_environment.next_update_ms = HAL_GetTick() + ENVIRONMENT_PERIOD_MS;
     }
@@ -342,11 +382,12 @@ void DeviceManager_EnvironmentClose(void)
 
 void DeviceManager_StartHeartMeasurement(void)
 {
+    /* 每次调用先安排下一次自动测量，再尝试启动本次 12 秒窗口。 */
     uint32_t now = HAL_GetTick();
 
     s_heart.next_update_ms = now + HEART_PERIOD_MS;
     if(s_heart.connected == 0U) {
-        /* Re-probe on every manual entry in case EM7028 powered up late. */
+        /* 手动进入页面时重新探测，允许较晚上电的 EM7028 自行恢复。 */
         s_heart.connected = (EM7028_hrs_init() == 0U) ? 1U : 0U;
         if(s_heart.connected == 0U) {
             s_heart.measuring = 0U;
@@ -359,6 +400,7 @@ void DeviceManager_StartHeartMeasurement(void)
         return;
     }
 
+    /* 新窗口必须清空全部滤波/峰值状态，不能沿用上一次的间隔。 */
     s_heart.measuring = 1U;
     s_heart_started_ms = now;
     s_next_heart_sample_ms = now;
@@ -371,6 +413,7 @@ void DeviceManager_StartHeartMeasurement(void)
 
 void DeviceManager_StopHeartMeasurement(void)
 {
+    /* 页面离开时可提前停测；先关 LED/AFE，再更新 measuring 状态。 */
     if(s_heart.measuring != 0U) {
         (void)EM7028_hrs_DisEnable();
         s_heart.measuring = 0U;
@@ -380,6 +423,7 @@ void DeviceManager_StopHeartMeasurement(void)
 
 static void ProcessHeart(uint32_t now)
 {
+    /* 简化算法：低通估计直流分量，交流分量上穿阈值视为一次脉搏峰。 */
     uint16_t raw;
     int32_t ac;
     uint32_t interval;
@@ -387,6 +431,7 @@ static void ProcessHeart(uint32_t now)
 
     if(s_heart.measuring == 0U) return;
 
+    /* 12 秒窗口结束后关闭传感器并冻结最终 BPM。 */
     if((uint32_t)(now - s_heart_started_ms) >= HEART_MEASURE_DURATION_MS) {
         (void)EM7028_hrs_DisEnable();
         s_heart.measuring = 0U;
@@ -406,13 +451,16 @@ static void ProcessHeart(uint32_t now)
 
     raw = EM7028_Get_HRS1();
     s_heart.raw = raw;
+    /* 1/32 IIR 低通估计光电信号的直流基线。 */
     s_heart_dc = (s_heart_dc == 0U) ? raw :
                  (((s_heart_dc * 31U) + raw) / 32U);
     ac = (int32_t)raw - (int32_t)s_heart_dc;
 
+    /* 只检测从阈值下方向上穿越的边沿，防止一个宽峰被重复计数。 */
     if((s_heart_previous_ac <= 120) && (ac > 120)) {
         if(s_heart_last_peak_ms != 0U) {
             interval = now - s_heart_last_peak_ms;
+            /* 333~1500 ms 对应约 180~40 BPM，范围外当作运动伪影。 */
             if((interval >= 333U) && (interval <= 1500U)) {
                 bpm = (uint16_t)(60000U / interval);
                 if((bpm >= 40U) && (bpm <= 180U)) {
@@ -428,6 +476,7 @@ static void ProcessHeart(uint32_t now)
                         s_heart_bpm_count = 5U;
                     }
                     else {
+                        /* 获得四个初始峰后采用 3:1 平滑，显示不会大幅跳变。 */
                         s_heart.bpm = (uint16_t)
                             (((uint32_t)s_heart.bpm * 3U + bpm) / 4U);
                     }
@@ -441,6 +490,7 @@ static void ProcessHeart(uint32_t now)
 
 static void EvaluateHeartAlert(uint32_t now)
 {
+    /* 必须连续两次完整测量都同向异常，且两次提醒至少间隔 2 小时。 */
     int8_t abnormal_kind = 0;
     const char *message;
 
@@ -477,23 +527,27 @@ static void EvaluateHeartAlert(uint32_t now)
 
 void DeviceManager_UpdateMotion(void)
 {
+    /* 主动读取一组加速度、陀螺仪和温度并写入统一缓存。 */
     s_next_step_sample_ms = HAL_GetTick();
     ProcessSteps(HAL_GetTick());
 }
 
 void DeviceManager_MotionOpen(void)
 {
+    /* 运动页面进入时唤醒完整测量功能，退出后回到低功耗计步状态。 */
     /* The activity page reads the always-running low-power step counter. */
     DeviceManager_UpdateMotion();
 }
 
 void DeviceManager_MotionClose(void)
 {
+    /* 页面退出后保留低功耗加速度计计步，不把 MPU 完全关机。 */
     /* Step counting must continue after leaving the page. */
 }
 
 static void ProcessSteps(uint32_t now)
 {
+    /* 100 ms 读取一次加速度模长，用动态高/低阈值状态机检测一步。 */
     short x;
     short y;
     short z;
@@ -559,6 +613,7 @@ static void ProcessSteps(uint32_t now)
 
 static void ProcessFall(uint32_t now, int32_t magnitude, int32_t dynamic)
 {
+    /* 跌倒检测分为“强冲击候选→延时观察静止→通知”，降低日常碰撞误报。 */
     uint32_t elapsed;
 
     if(magnitude >= FALL_IMPACT_MAGNITUDE) {
@@ -604,6 +659,7 @@ static void ProcessFall(uint32_t now, int32_t magnitude, int32_t dynamic)
 
 static void ProcessSedentary(uint32_t now)
 {
+    /* 有明显运动时刷新 last_activity；静止 45 分钟只提醒一次。 */
     if((s_motion.connected == 0U) || (s_sedentary_notified != 0U)) return;
     if((uint32_t)(now - s_last_activity_ms) < SEDENTARY_ALERT_MS) return;
 
@@ -617,6 +673,7 @@ static void ProcessSedentary(uint32_t now)
 
 static void ProcessStepDate(uint32_t now)
 {
+    /* 每秒检查 RTC 日期；跨日时先归档昨天，再清零今日步数。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
 
@@ -640,6 +697,7 @@ static void ProcessStepDate(uint32_t now)
 
 void DeviceManager_CompassOpen(void)
 {
+    /* 指南针功耗较高，只在页面打开期间唤醒并采样。 */
     s_compass_open = 1U;
     if(s_compass.connected != 0U) {
         LSM303DLH_Wakeup();
@@ -649,6 +707,7 @@ void DeviceManager_CompassOpen(void)
 
 void DeviceManager_UpdateCompass(void)
 {
+    /* 同时读取加速度和磁场，进行倾斜补偿后得到 0~360° 方位角。 */
     int16_t xa, ya, za, xm, ym, zm;
     float direction;
 
@@ -664,12 +723,14 @@ void DeviceManager_UpdateCompass(void)
 
 void DeviceManager_CompassClose(void)
 {
+    /* 离开页面立即让 LSM303 休眠，缓存的最后方向仍可供 UI 读取。 */
     s_compass_open = 0U;
     if(s_compass.connected != 0U) LSM303DLH_Sleep();
 }
 
 static void ProcessWrist(uint32_t now)
 {
+    /* 300 ms 轮询姿态并只在 0→1/1→0 边沿生成抬腕/落腕事件。 */
     uint8_t wrist_up;
 
     if((s_wrist_wake_enabled == 0U) || (s_motion.connected == 0U) ||
@@ -688,6 +749,7 @@ static void ProcessWrist(uint32_t now)
 
 uint8_t DeviceManager_TakeWristRaiseEvent(void)
 {
+    /* 读后清零的事件邮箱；调用者无需额外调用 Clear。 */
     uint8_t event = s_wrist_raise_event;
     s_wrist_raise_event = 0U;
     return event;
@@ -695,6 +757,7 @@ uint8_t DeviceManager_TakeWristRaiseEvent(void)
 
 uint8_t DeviceManager_TakeWristLowerEvent(void)
 {
+    /* 与抬腕事件相同，读取后立即清除。 */
     uint8_t event = s_wrist_lower_event;
     s_wrist_lower_event = 0U;
     return event;
@@ -702,6 +765,7 @@ uint8_t DeviceManager_TakeWristLowerEvent(void)
 
 uint8_t DeviceManager_CheckWristAfterStop(void)
 {
+    /* STOP 唤醒后重新读实际姿态，过滤仅有运动中断但并未真正抬腕的情况。 */
     uint8_t wrist_up;
     if((s_wrist_wake_enabled == 0U) || (s_motion.connected == 0U)) return 0U;
     wrist_up = MPU_isHorizontal();
@@ -721,6 +785,7 @@ const Device_CompassData_t *DeviceManager_GetCompass(void) { return &s_compass; 
 uint8_t DeviceManager_GetWristWakeEnabled(void) { return s_wrist_wake_enabled; }
 void DeviceManager_SetWristWakeEnabled(uint8_t enabled)
 {
+    /* 将任意非零输入规范成 1，值未变化则不触发 EEPROM 写入。 */
     uint8_t value = (enabled != 0U) ? 1U : 0U;
     if(value == s_wrist_wake_enabled) return;
     s_wrist_wake_enabled = value;
@@ -733,7 +798,7 @@ void DeviceManager_SetWristWakeEnabled(uint8_t enabled)
             s_wrist_was_up = MPU_isHorizontal();
         }
         else {
-            /* Keep low-power acceleration sampling for the step counter. */
+            /* 关闭抬腕中断，但仍保留低功耗加速度采样供计步使用。 */
             MPU_Wakeup();
             (void)MPU_Write_Byte(MPU_INT_EN_REG, 0x00U);
         }
@@ -741,9 +806,11 @@ void DeviceManager_SetWristWakeEnabled(uint8_t enabled)
     SaveSettings();
 }
 
+/* 以下设置 Getter 只读 RAM 镜像，不会每次访问 EEPROM。 */
 uint8_t DeviceManager_GetAmbientEnabled(void) { return s_ambient_enabled; }
 void DeviceManager_SetAmbientEnabled(uint8_t enabled)
 {
+    /* 值变化时才写 EEPROM，减少设置开关抖动造成的磨损。 */
     uint8_t value = (enabled != 0U) ? 1U : 0U;
     if(value == s_ambient_enabled) return;
     s_ambient_enabled = value;
@@ -752,11 +819,13 @@ void DeviceManager_SetAmbientEnabled(uint8_t enabled)
 
 uint8_t DeviceManager_GetWatchFace(void)
 {
+    /* 返回已经从 EEPROM 恢复并校验过的 0~2 索引。 */
     return s_watch_face;
 }
 
 void DeviceManager_SetWatchFace(uint8_t index)
 {
+    /* 只接受现有三个表盘索引，异常值回退到经典表盘。 */
     uint8_t value = (index <= 2U) ? index : 0U;
     if(value == s_watch_face) return;
     s_watch_face = value;
@@ -765,17 +834,20 @@ void DeviceManager_SetWatchFace(uint8_t index)
 
 uint8_t DeviceManager_GetWorkingBrightness(void)
 {
+    /* 返回 1~100% 的工作背光设置。 */
     return s_working_brightness;
 }
 
 uint8_t DeviceManager_GetAmbientBrightness(void)
 {
+    /* 返回不高于工作亮度的 AOD 背光设置。 */
     return s_ambient_brightness;
 }
 
 void DeviceManager_SetBrightness(uint8_t working_percent,
                                  uint8_t ambient_percent)
 {
+    /* 工作亮度限制 1~100%，AOD 亮度不能高于工作亮度。 */
     if(working_percent < 1U) working_percent = 1U;
     if(working_percent > 100U) working_percent = 100U;
     if(ambient_percent < 1U) ambient_percent = 1U;
@@ -789,6 +861,7 @@ void DeviceManager_SetBrightness(uint8_t working_percent,
 
 void DeviceManager_SaveDateTimeNow(void)
 {
+    /* 时间记录分成两个 8 字节页，并使用 marker/反 marker/双校验抗掉电。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     uint8_t record[EEPROM_TIME_SLOT_SIZE] = {0};
@@ -798,6 +871,7 @@ void DeviceManager_SaveDateTimeNow(void)
     if(HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN) != HAL_OK) return;
     if(HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN) != HAL_OK) return;
 
+    /* 用户手动改日期也可能跨日，因此保存时间前先处理每日统计。 */
     if((date.Year != s_step_year) ||
        (date.Month != s_step_month) ||
        (date.Date != s_step_day)) {
@@ -822,6 +896,7 @@ void DeviceManager_SaveDateTimeNow(void)
     record[15] = Checksum(&record[8]);
     address = (uint8_t)(EEPROM_TIME_BASE +
                         s_time_next_slot * EEPROM_TIME_SLOT_SIZE);
+    /* 先写后半页，再写带主 marker 的前半页；半途断电不会形成有效新记录。 */
     BL24C02_Write((uint8_t)(address + 8U), 8U, &record[8]);
     HAL_Delay(6U);
     BL24C02_Write(address, 8U, record);
@@ -833,6 +908,7 @@ void DeviceManager_SaveDateTimeNow(void)
 
 static void LoadDateTime(void)
 {
+    /* 扫描所有时间槽，选择序号最新且结构/范围/校验全部有效的记录。 */
     uint8_t record[EEPROM_TIME_SLOT_SIZE];
     uint8_t candidate[EEPROM_TIME_SLOT_SIZE];
     uint8_t slot;
@@ -866,7 +942,7 @@ static void LoadDateTime(void)
         s_time_next_sequence = (uint8_t)(newest_sequence + 1U);
     }
     else {
-        /* One-time migration from the original fixed-address record. */
+        /* 新格式不存在时尝试读取旧固定地址，实现一次性向后兼容迁移。 */
         BL24C02_Read(EEPROM_LEGACY_TIME_ADDRESS, EEPROM_RECORD_SIZE, record);
         if((record[0] != EEPROM_TIME_MARKER) ||
            (record[7] != Checksum(record)) ||
@@ -886,6 +962,7 @@ static void LoadDateTime(void)
     date.Month = record[3];
     date.Date = record[4];
 apply_time:
+    /* 不论来自新旧格式，最终都汇合到同一 RTC 写入路径。 */
     time.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
     time.StoreOperation = RTC_STOREOPERATION_RESET;
     date.WeekDay = Weekday(2000U + date.Year, date.Month, date.Date);
@@ -895,6 +972,7 @@ apply_time:
 
 static void LoadSettings(void)
 {
+    /* 优先读取新版循环槽；没有有效槽时再尝试旧版固定记录。 */
     uint8_t record[EEPROM_RECORD_SIZE];
     uint8_t newest_slot;
 
@@ -923,12 +1001,14 @@ static void LoadSettings(void)
 
 static void SaveSettings(void)
 {
+    /* 设置用四槽循环写，避免每次切换表盘都磨损同一个 EEPROM 地址。 */
     uint8_t record[EEPROM_RECORD_SIZE] = {0};
 
     if(s_eeprom_connected == 0U) return;
     record[0] = EEPROM_SETTINGS_MARKER;
     record[1] = s_settings_next_sequence;
     record[2] = EEPROM_SETTINGS_VERSION;
+    /* 两个布尔设置压缩进同一 flags 字节，为后续版本保留空间。 */
     record[3] = (uint8_t)((s_wrist_wake_enabled ? 0x01U : 0U) |
                           (s_ambient_enabled ? 0x02U : 0U));
     record[4] = s_working_brightness;
@@ -945,6 +1025,7 @@ static void SaveSettings(void)
 
 static void LoadSteps(void)
 {
+    /* 步数只有在记录日期等于今天时恢复，昨天的值不会带到新一天。 */
     uint8_t record[EEPROM_RECORD_SIZE];
     uint8_t newest_slot;
     RTC_TimeTypeDef time = {0};
@@ -982,6 +1063,7 @@ static void LoadSteps(void)
 
 static void SaveSteps(void)
 {
+    /* 新格式用 16 位步数；超过 65535 时饱和保存，RAM 仍保留真实计数。 */
     uint8_t record[EEPROM_RECORD_SIZE] = {0};
     uint32_t steps;
 
@@ -1007,12 +1089,14 @@ static void SaveSteps(void)
 
 static uint8_t SequenceIsNewer(uint8_t candidate, uint8_t current)
 {
+    /* 8 位序号采用半区间比较，使 255→0 的回绕仍被认为更新。 */
     return ((candidate != current) &&
             ((uint8_t)(candidate - current) < 128U)) ? 1U : 0U;
 }
 
 static void RecordCompletedDay(void)
 {
+    /* 有累计样本时计算日均值，否则用最后一次有效值作为兜底。 */
     uint16_t average_heart = s_heart.bpm;
     float average_temperature = s_environment.temperature;
     float average_humidity = s_environment.humidity;
@@ -1032,6 +1116,7 @@ static void RecordCompletedDay(void)
     s_daily_environment_count = 0U;
 }
 
+/* 在一组 8 字节循环槽中寻找序号最新的有效记录。 */
 static uint8_t FindNewest8(uint8_t base, uint8_t slots, uint8_t marker,
                            uint8_t *record, uint8_t *newest_slot)
 {
@@ -1039,6 +1124,7 @@ static uint8_t FindNewest8(uint8_t base, uint8_t slots, uint8_t marker,
     uint8_t slot;
     uint8_t sequence = 0U;
     uint8_t found = 0U;
+    /* 通用 8 字节循环记录扫描器：marker 与校验均有效才参与比较。 */
     for(slot = 0U; slot < slots; slot++) {
         BL24C02_Read((uint8_t)(base + slot * EEPROM_RECORD_SIZE),
                      EEPROM_RECORD_SIZE, candidate);
@@ -1055,6 +1141,7 @@ static uint8_t FindNewest8(uint8_t base, uint8_t slots, uint8_t marker,
 
 static uint8_t Checksum(const uint8_t *data)
 {
+    /* 校验前七字节；固定种子可降低全零未初始化区被误认成有效记录的概率。 */
     uint8_t checksum = 0x3CU;
     uint8_t index;
     for(index = 0U; index < (EEPROM_RECORD_SIZE - 1U); index++) checksum ^= data[index];
@@ -1063,11 +1150,13 @@ static uint8_t Checksum(const uint8_t *data)
 
 static uint8_t IsDue(uint32_t now, uint32_t deadline)
 {
+    /* 有符号差值是嵌入式 deadline 的常用写法，可跨越 32 位 tick 回绕。 */
     return ((int32_t)(now - deadline) >= 0) ? 1U : 0U;
 }
 
 static uint8_t Weekday(uint16_t year, uint8_t month, uint8_t day)
 {
+    /* Sakamoto 公历星期算法，结果转换为 STM32 HAL 的星期枚举。 */
     static const uint8_t month_table[] = {0U, 3U, 2U, 5U, 0U, 3U, 5U, 1U, 4U, 6U, 2U, 4U};
     uint32_t y = year;
     uint32_t weekday;

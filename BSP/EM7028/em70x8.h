@@ -3,6 +3,7 @@
 
 #include "iic_hal.h"
 
+/* 芯片 ID、I2C 地址及寄存器表均来自 EM7028 数据手册。 */
 #define EM7028_ID					0x36
 #define EM7028_ADDR				0x24
 

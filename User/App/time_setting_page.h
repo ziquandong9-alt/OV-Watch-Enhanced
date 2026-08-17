@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+/* 创建/销毁时、分、秒 roller 页面。 */
 void TimeSettingPage_Create(void);
 void TimeSettingPage_Destroy(void);
 

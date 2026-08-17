@@ -17,6 +17,7 @@ EEPROM Data description:
 
 void EEPROM_Init(void)
 {
+    /* 对业务层保留的初始化入口，内部只准备 BL24C02 总线。 */
 	BL24C02_Init();
 }
 
@@ -24,6 +25,7 @@ void EEPROM_Init(void)
 //to check the Data is right and the EEPROM is working
 uint8_t EEPROM_Check(void)
 {
+    /* 写入并读回测试字节判断器件是否存在；返回 0 表示正常。 */
 	uint8_t check_buff[2];
 	delay_ms(10);
 	BL24C02_Read(0,2,check_buff);
@@ -50,6 +52,7 @@ uint8_t EEPROM_Check(void)
 //to Save the settings
 uint8_t SettingSave(uint8_t *buf, uint8_t addr, uint8_t lenth)
 {
+    /* 旧版设置保存接口；新版业务层使用带校验的循环记录。 */
 	if(addr > 1 && !EEPROM_Check())
 	{
 		delay_ms(10);
@@ -63,6 +66,7 @@ uint8_t SettingSave(uint8_t *buf, uint8_t addr, uint8_t lenth)
 //to Get the settings
 uint8_t SettingGet(uint8_t *buf, uint8_t addr, uint8_t lenth)
 {
+    /* 检查地址/器件后读取指定范围。注意 lenth 是原代码保留拼写。 */
 	if(addr > 1 && !EEPROM_Check())
 	{
 		delay_ms(10);

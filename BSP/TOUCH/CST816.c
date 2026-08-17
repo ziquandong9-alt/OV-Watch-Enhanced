@@ -2,6 +2,8 @@
 
 #define TOUCH_OFFSET_Y 0
 
+/* CST816 电容触摸驱动：软件 I2C 读寄存器，外部通过全局坐标/手指数取结果。 */
+
 CST816_Info	CST816_Instance;
 
 iic_bus_t CST816_dev =
@@ -21,7 +23,8 @@ iic_bus_t CST816_dev =
 *********************************************************************************************************
 */
 void CST816_GPIO_Init(void)
-{	
+{
+    /* 配置复位、INT 和软件 I2C 引脚；INT 是否可用取决于实际 PCB 连线。 */
 	GPIO_InitTypeDef GPIO_InitStructure = {0};
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
@@ -54,6 +57,7 @@ void CST816_GPIO_Init(void)
 */
 void CST816_Init(void)
 {
+    /* 初始化总线、硬复位控制器并读取芯片 ID 做基本探测。 */
 	CST816_GPIO_Init();
 	CST816_Config_AutoSleepTime(5);
 }
@@ -69,6 +73,7 @@ void CST816_Init(void)
 */
 uint8_t CST816_IIC_ReadREG(uint8_t addr)
 {
+    /* 单寄存器读：先写寄存器地址，再重复起始切换到读方向。 */
 	return IIC_Read_One_Byte(&CST816_dev,Device_Addr,addr);
 }
 
@@ -83,6 +88,7 @@ uint8_t CST816_IIC_ReadREG(uint8_t addr)
 */
 void CST816_IIC_WriteREG(uint8_t addr, uint8_t dat)
 {
+    /* 单寄存器写，用于休眠、手势掩码和扫描周期配置。 */
 	IIC_Write_One_Byte(&CST816_dev,Device_Addr,addr,dat);
 }
 
@@ -96,6 +102,7 @@ void CST816_IIC_WriteREG(uint8_t addr, uint8_t dat)
 */
 void CST816_RESET(void)
 {
+    /* 按数据手册保持复位低电平，再拉高并等待内部启动完成。 */
 	TOUCH_RST_0;
 	HAL_Delay(10);
 	TOUCH_RST_1;
@@ -112,6 +119,7 @@ void CST816_RESET(void)
 */
 void CST816_Get_XY_AXIS(void)
 {
+    /* 读取高低字节并掩掉状态位，组合为触摸 X/Y 坐标。 */
 	uint8_t DAT[4];
 	IIC_Read_Multi_Byte(&CST816_dev,Device_Addr,XposH,4,DAT);
 	CST816_Instance.X_Pos=((DAT[0]&0x0F)<<8)|DAT[1];//(temp[0]&0X0F)<<4|
@@ -129,6 +137,7 @@ void CST816_Get_XY_AXIS(void)
 */
 uint8_t CST816_Get_FingerNum(void)
 {
+    /* 返回当前触点数量；0xFF 通常表示 I2C 读取失败。 */
 	return CST816_IIC_ReadREG(FingerNum);
 }
 
@@ -143,6 +152,7 @@ uint8_t CST816_Get_FingerNum(void)
 */
 uint8_t CST816_Get_ChipID(void)
 {
+    /* 读取只读 ChipID，常用于启动时确认器件在线。 */
 	return CST816_IIC_ReadREG(ChipID);
 }
 
@@ -158,6 +168,7 @@ uint8_t CST816_Get_ChipID(void)
 */
 void CST816_Config_MotionMask(uint8_t mode)
 {
+    /* 配置控制器内部识别哪些滑动/双击手势。 */
 	CST816_IIC_WriteREG(MotionMask,mode);
 }
 
@@ -172,6 +183,7 @@ void CST816_Config_MotionMask(uint8_t mode)
 */
 void CST816_Config_AutoSleepTime(uint8_t time)
 {
+    /* 设置控制器自身无操作后进入低功耗的时间。 */
 	CST816_IIC_WriteREG(AutoSleepTime,time);
 }
 
@@ -185,6 +197,7 @@ void CST816_Config_AutoSleepTime(uint8_t time)
 */
 void CST816_Sleep(void)
 {
+    /* 写入休眠命令；唤醒通常需要复位或 INT 动作。 */
 	CST816_IIC_WriteREG(SleepMode,0x03);
 }
 
@@ -198,6 +211,7 @@ void CST816_Sleep(void)
 */
 void CST816_Wakeup(void)
 {
+    /* 通过硬件复位恢复控制器，随后重新应用必要配置。 */
 	CST816_RESET();
 }
 

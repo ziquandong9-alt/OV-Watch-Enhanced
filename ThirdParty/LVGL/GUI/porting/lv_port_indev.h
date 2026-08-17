@@ -30,6 +30,7 @@ extern "C" {
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
+/* 注册 CST816 触摸为 LVGL pointer 输入设备。 */
 void lv_port_indev_init(void);
 
 /**********************

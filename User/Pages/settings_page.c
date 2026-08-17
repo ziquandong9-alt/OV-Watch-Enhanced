@@ -7,6 +7,7 @@
 #define SETTINGS_DEFAULT_WORK_BRIGHTNESS     50U
 #define SETTINGS_DEFAULT_AMBIENT_BRIGHTNESS  5U
 
+/* slider/value label 保存为静态指针，供多个事件回调共享。 */
 static lv_obj_t *s_work_slider;
 static lv_obj_t *s_ambient_slider;
 static lv_obj_t *s_work_value;
@@ -14,6 +15,7 @@ static lv_obj_t *s_ambient_value;
 
 static void SettingRowClicked(lv_event_t *event)
 {
+    /* 某些行点击后跳到二级页面，目标页枚举通过 user_data 传入。 */
     lv_obj_t *toggle = (lv_obj_t *)lv_event_get_user_data(event);
 
     if(lv_obj_has_state(toggle, LV_STATE_CHECKED)) {
@@ -27,6 +29,7 @@ static void SettingRowClicked(lv_event_t *event)
 
 static void WristSwitchChanged(lv_event_t *event)
 {
+    /* UI 只提交布尔设置，硬件配置和 EEPROM 保存由 DeviceManager 完成。 */
     lv_obj_t *toggle = lv_event_get_target(event);
     DeviceManager_SetWristWakeEnabled(
         lv_obj_has_state(toggle, LV_STATE_CHECKED) ? 1U : 0U);
@@ -34,6 +37,7 @@ static void WristSwitchChanged(lv_event_t *event)
 
 static void AmbientSwitchChanged(lv_event_t *event)
 {
+    /* 从 switch 的 CHECKED 状态生成严格的 0/1 AOD 设置。 */
     lv_obj_t *toggle = lv_event_get_target(event);
     DeviceManager_SetAmbientEnabled(
         lv_obj_has_state(toggle, LV_STATE_CHECKED) ? 1U : 0U);
@@ -41,6 +45,7 @@ static void AmbientSwitchChanged(lv_event_t *event)
 
 static lv_obj_t *CreatePanel(lv_obj_t *parent, lv_coord_t height)
 {
+    /* 统一设置卡片背景、圆角、边框和内边距，减少样式重复。 */
     lv_obj_t *panel = lv_obj_create(parent);
     lv_obj_set_size(panel, 228, height);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -57,6 +62,7 @@ static void CreateSettingRow(lv_obj_t *parent,
                              uint8_t checked,
                              lv_event_cb_t callback)
 {
+    /* 创建标题、说明和 switch，并把变化回调绑定到开关。 */
     lv_obj_t *panel = CreatePanel(parent, 78);
     lv_obj_t *title_label;
     lv_obj_t *description_label;
@@ -87,6 +93,7 @@ static void CreateSettingRow(lv_obj_t *parent,
 
 static void UpdateBrightnessLabels(void)
 {
+    /* label 从 slider 当前值生成，保证拖动过程中显示与目标亮度一致。 */
     if(s_work_value != NULL) {
         lv_label_set_text_fmt(s_work_value, "%ld%%",
                               (long)lv_slider_get_value(s_work_slider));
@@ -99,6 +106,7 @@ static void UpdateBrightnessLabels(void)
 
 static void BrightnessChanged(lv_event_t *event)
 {
+    /* AOD 亮度不能超过工作亮度；拖动任一 slider 时都重新夹紧范围。 */
     lv_obj_t *target = lv_event_get_target(event);
     int32_t working = lv_slider_get_value(s_work_slider);
     int32_t ambient = lv_slider_get_value(s_ambient_slider);
@@ -129,6 +137,7 @@ static void CreateBrightnessRow(lv_obj_t *parent,
                                 lv_obj_t **slider_out,
                                 lv_obj_t **value_out)
 {
+    /* 创建亮度标题、当前值和 slider，具体保存由统一事件回调处理。 */
     lv_obj_t *panel = CreatePanel(parent, 96);
     lv_obj_t *title_label = lv_label_create(panel);
     lv_obj_t *value_label = lv_label_create(panel);
@@ -157,6 +166,7 @@ static void CreateBrightnessRow(lv_obj_t *parent,
 
 static void ResetBrightness(lv_event_t *event)
 {
+    /* 恢复默认值后同时更新控件、设备缓存、EEPROM 和当前背光。 */
     (void)event;
     lv_slider_set_value(s_work_slider,
                         SETTINGS_DEFAULT_WORK_BRIGHTNESS,
@@ -172,6 +182,7 @@ static void ResetBrightness(lv_event_t *event)
 
 void SettingsPage_Create(void)
 {
+    /* 创建时从 DeviceManager 读取持久化设置，而不是使用控件默认状态。 */
     lv_obj_t *screen = lv_scr_act();
     lv_obj_t *list;
     lv_obj_t *title;
@@ -230,6 +241,7 @@ void SettingsPage_Create(void)
 
 void SettingsPage_Destroy(void)
 {
+    /* 所有控件由根屏幕拥有；clean 后清空跨回调使用的静态指针。 */
     if((s_work_slider != NULL) && (s_ambient_slider != NULL)) {
         DeviceManager_SetBrightness(
             (uint8_t)lv_slider_get_value(s_work_slider),

@@ -5,6 +5,7 @@
 
 typedef struct
 {
+    /* 每条软件 I2C 总线独立保存 GPIO 资源，实现驱动复用。 */
 	GPIO_TypeDef * IIC_SDA_PORT;
 	GPIO_TypeDef * IIC_SCL_PORT;
 	uint16_t IIC_SDA_PIN;

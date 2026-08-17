@@ -7,6 +7,7 @@ volatile LCD_FPS_Result_t g_lcd_fps_result = {0U, 0U, 0U, 0U};
 
 void LCD_FPS_Test(uint32_t duration_ms)
 {
+    /* 绕过 LVGL 连续整屏刷色，测量 SPI/LCD 的纯总线吞吐上限。 */
     static const uint16_t colors[] = {
         RED, GREEN, BLUE, WHITE, BLACK, YELLOW, CYAN, MAGENTA
     };

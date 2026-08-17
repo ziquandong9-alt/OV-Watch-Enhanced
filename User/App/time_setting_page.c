@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+/* roller 的每一项用换行分隔；常量放在 Flash，不占运行期堆内存。 */
 static const char s_hour_options[] =
     "00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n"
     "12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23";
@@ -26,6 +27,7 @@ static lv_obj_t *TimeSettingPage_CreateRoller(lv_obj_t *screen,
                                               lv_coord_t x);
 static void TimeSettingPage_Confirm(lv_event_t *event);
 
+/* 创建时分秒 roller，并用 RTC 当前时间作为初始选中值。 */
 void TimeSettingPage_Create(void)
 {
     RTC_TimeTypeDef time = {0};
@@ -35,6 +37,7 @@ void TimeSettingPage_Create(void)
     lv_obj_t *confirm_button;
     lv_obj_t *confirm_label;
 
+    /* 本页独占活动屏幕，先建立统一的纯色背景。 */
     lv_obj_clean(screen);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x05070AU), LV_PART_MAIN);
@@ -53,12 +56,13 @@ void TimeSettingPage_Create(void)
                                                    s_minute_second_options,
                                                    167);
 
+    /* RTC 读取失败时给 roller 一个确定的 00:00:00，而不是使用未定义数据。 */
     if(HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN) != HAL_OK) {
         time.Hours = 0U;
         time.Minutes = 0U;
         time.Seconds = 0U;
     }
-    /* Always read date after time to unlock the STM32 RTC shadow registers. */
+    /* STM32 RTC 读 Time 后必须再读 Date，才能解锁影子寄存器供下次更新。 */
     (void)HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN);
 
     lv_roller_set_selected(s_hour_roller, time.Hours, LV_ANIM_OFF);
@@ -91,6 +95,7 @@ void TimeSettingPage_Create(void)
 
 void TimeSettingPage_Destroy(void)
 {
+    /* clean 递归释放所有控件；静态指针只作借用，随后必须归零。 */
     lv_obj_clean(lv_scr_act());
     s_hour_roller = NULL;
     s_minute_roller = NULL;
@@ -102,6 +107,7 @@ static lv_obj_t *TimeSettingPage_CreateRoller(lv_obj_t *screen,
                                               const char *options,
                                               lv_coord_t x)
 {
+    /* 把重复样式集中在一个工厂函数中，避免三列控件细节不一致。 */
     lv_obj_t *roller = lv_roller_create(screen);
 
     lv_roller_set_options(roller, options, LV_ROLLER_MODE_NORMAL);
@@ -128,14 +134,17 @@ static void TimeSettingPage_Confirm(lv_event_t *event)
     RTC_TimeTypeDef time = {0};
 
     (void)event;
+    /* 选项从 00 顺序排列，所以选中索引可直接作为时间数值。 */
     time.Hours = (uint8_t)lv_roller_get_selected(s_hour_roller);
     time.Minutes = (uint8_t)lv_roller_get_selected(s_minute_roller);
     time.Seconds = (uint8_t)lv_roller_get_selected(s_second_roller);
+    /* 项目 RTC 配置实际使用 24 小时值；其余 HAL 必填字段仍需初始化。 */
     time.TimeFormat = RTC_HOURFORMAT12_AM;
     time.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
     time.StoreOperation = RTC_STOREOPERATION_RESET;
 
     if(HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN) == HAL_OK) {
+        /* HAL 写入成功后才保存到外部 EEPROM，作为 RTC 掉电恢复备份。 */
         DeviceManager_SaveDateTimeNow();
         AppUI_RequestPage(APP_UI_PAGE_WATCH);
     }

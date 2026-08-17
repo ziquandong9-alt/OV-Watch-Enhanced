@@ -1,5 +1,7 @@
 #include "AHT21.h"
 
+/* AHT21 温湿度驱动：0 表示成功；结果包含 20 位湿度和 20 位温度原始码。 */
+
 #define AHT_CLK_ENABLE __HAL_RCC_GPIOB_CLK_ENABLE()
 iic_bus_t AHT_bus = 
 {
@@ -11,6 +13,7 @@ iic_bus_t AHT_bus =
 
 uint8_t AHT_Read_Status(void)
 {
+    /* 读取状态字节，用于判断忙碌和校准状态。 */
 	uint8_t Byte_first;	
 	IICStart(&AHT_bus);
 	IICSendByte(&AHT_bus,0x71);
@@ -21,7 +24,8 @@ uint8_t AHT_Read_Status(void)
 	return Byte_first;
 }
 
-uint8_t AHT_Read_Cal_Enable(void)  //check cal enable bit 
+/* 返回状态寄存器中的校准使能位。 */
+uint8_t AHT_Read_Cal_Enable(void)  //check cal enable bit
 {
 	uint8_t val = 0;//ret = 0,
  
@@ -32,6 +36,7 @@ uint8_t AHT_Read_Cal_Enable(void)  //check cal enable bit
 		return 0;
 }
 
+/* 发送 0xBA 软复位命令，并等待器件重新启动。 */
 void AHT_Reset(void)//AHT21 send 0xBA reset call
 {
 	IICStart(&AHT_bus);
@@ -44,6 +49,7 @@ void AHT_Reset(void)//AHT21 send 0xBA reset call
 
 uint8_t AHT_Init(void)
 {
+    /* 建立软件 I2C，总线复位后检查并设置 AHT21 校准状态。 */
 	AHT_CLK_ENABLE;
 	IICInit(&AHT_bus);
 	
@@ -70,6 +76,7 @@ uint8_t AHT_Init(void)
  
 uint8_t AHT_Read(float *humi, float *temp)
 {
+    /* 同步接口：启动转换、等待完成、读取并换算物理量。 */
 	uint8_t cnt=5;
 	uint8_t  Byte_1th=0;
 	uint8_t  Byte_2th=0;
@@ -140,6 +147,7 @@ uint8_t AHT_Read(float *humi, float *temp)
 /* Start a conversion without waiting. The result is ready after at least 80 ms. */
 void AHT_StartMeasurement(void)
 {
+    /* 只发送测量命令；DeviceManager 用 deadline 异步等待结果。 */
 	IICStart(&AHT_bus);
 	IICSendByte(&AHT_bus,0x70);
 	IICWaitAck(&AHT_bus);
@@ -155,6 +163,7 @@ void AHT_StartMeasurement(void)
 /* Read an already completed conversion. This function never delays. */
 uint8_t AHT_ReadMeasurement(float *humi, float *temp)
 {
+    /* 读取 6 字节并按数据手册公式把 20 位原始码换算成 %RH 和 ℃。 */
 	uint8_t data[6];
 	uint32_t raw;
 	uint8_t index;

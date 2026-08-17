@@ -4,10 +4,11 @@
 
 void AboutPage_Create(void)
 {
+    /* 关于页全是静态 label，不需要 timer 或模块级对象指针。 */
     lv_obj_t *scr = lv_scr_act();
     lv_obj_clean(scr);
 
-    //页面背景黑色
+    /* 根屏幕使用不透明黑色，保证圆角屏边缘没有旧页面残影。 */
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x05070AU), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
@@ -39,5 +40,6 @@ void AboutPage_Create(void)
 
 void AboutPage_Destroy(void)
 {
+    /* 所有 label 都是根屏幕子对象，clean 会递归释放。 */
     lv_obj_clean(lv_scr_act());
 }

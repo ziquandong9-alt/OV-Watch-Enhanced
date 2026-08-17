@@ -29,6 +29,7 @@ extern "C" {
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
+/* 注册双缓冲 LVGL 显示驱动及异步 LCD DMA flush。 */
 void lv_port_disp_init(void);
 void lv_flush_proc(void);
 void lv_flush_start(void);

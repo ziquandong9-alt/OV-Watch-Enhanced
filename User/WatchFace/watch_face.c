@@ -11,6 +11,16 @@
 
 #include <stdint.h>
 
+/*
+ * 表盘模块同时管理三个横向页面：0 经典机械表盘、1 信息表盘、2 果冻数字。
+ * 三页常驻同一 pager 以实现手势跟随和滚动吸附，但只有当前页的动态 timer
+ * 会运行。滑动期间进一步降低非当前页细节，避免 SPI 带宽被不可见内容占用。
+ *
+ * 阅读建议：先看 Create/Destroy 和 PagerEvent，再分别阅读三个表盘的 Update，
+ * 最后阅读秒针的局部脏区算法；后者是本模块最偏性能优化的部分。
+ */
+
+/* 秒针 15 ms 插值更新；分针/时针以较低周期同步 RTC，减少无意义刷新。 */
 #define WATCH_FACE_SECOND_PERIOD_MS   15U
 #define WATCH_FACE_MINUTE_PERIOD_MS   45000U
 #define WATCH_FACE_HOUR_PERIOD_MS     120000U
@@ -23,6 +33,7 @@
 #define WATCH_FACE_SECOND_SEGMENTS    8U
 #define WATCH_FACE_SECOND_WIDTH       2
 #define WATCH_FACE_SECOND_DIRTY_PAD   3
+
 #define WATCH_FACE_INFO_PERIOD_MS      500U
 #define WATCH_FACE_COUNT               3U
 #define WATCH_FACE_INFO_INDEX          1U
@@ -42,6 +53,7 @@ LV_FONT_DECLARE(ui_font_Cuyuan135);
 #define INFO_ICON_STEPS                "\xEE\x99\xB6" /* U+E676 */
 #define INFO_ICON_TEMPERATURE          "\xEE\x99\x99" /* U+E659 */
 #define INFO_ICON_HUMIDITY             "\xEE\x99\xB3" /* U+E673 */
+#define WATCH_FACE_SCROLL_SETTLE_MS    80U
 
 static lv_obj_t *s_meter;
 static lv_obj_t *s_pager;
@@ -75,23 +87,30 @@ static lv_meter_indicator_t *s_hour_hand;
 static lv_meter_indicator_t *s_hour_hand_inner;
 static lv_meter_indicator_t *s_minute_hand;
 static lv_meter_indicator_t *s_minute_hand_inner;
+static lv_meter_scale_t *s_meter_scale;
 static lv_obj_t *s_second_draw_obj;
+/* 每个表盘的动态内容使用独立 timer，切换页面时可以精确暂停。 */
 static lv_timer_t *s_second_timer;
 static lv_timer_t *s_minute_timer;
 static lv_timer_t *s_hour_timer;
 static lv_timer_t *s_info_timer;
 static lv_timer_t *s_jelly_timer;
+static lv_timer_t *s_scroll_settle_timer;
 static lv_coord_t s_dial_center_x;
 static lv_coord_t s_dial_center_y;
 static lv_coord_t s_second_radius;
+/* 秒针角度放大 100 倍保存，既能平滑插值又避免在绘制路径使用浮点。 */
 static uint16_t s_second_angle_x100;
 static uint8_t s_second_angle_valid;
 static uint8_t s_second_visible;
 static uint8_t s_ambient;
+static uint8_t s_face_scrolling;
+static uint8_t s_notification_refresh_pending;
 /* Deliberately survives WatchFace_Destroy(): page recreation and STOP wake
    return to the face that the user last selected. */
 static uint8_t s_selected_face;
 
+/* “最后已显示值”缓存：只有真实数据变化才更新 label/arc，减少脏区。 */
 static uint8_t s_last_year = 0xFFU;
 static uint8_t s_last_month = 0xFFU;
 static uint8_t s_last_date = 0xFFU;
@@ -137,6 +156,7 @@ static lv_obj_t *WatchFace_CreateInfoArc(lv_obj_t *parent,
                                          uint32_t color,
                                          int32_t min,
                                          int32_t max);
+/* 为信息组件建立更大的透明点击热区。 */
 static void WatchFace_CreateInfoHitArea(lv_obj_t *parent,
                                         lv_coord_t x,
                                         lv_coord_t y,
@@ -150,9 +170,15 @@ static void WatchFace_SetJellyAmbient(uint8_t enabled);
 static void WatchFace_ScheduleNextMinute(lv_timer_t *timer,
                                          const RTC_TimeTypeDef *time);
 static void WatchFace_ApplyStatusBar(void);
+static void WatchFace_PauseAllTimers(void);
+static void WatchFace_SetMeterScrollDetail(uint8_t scrolling);
+static void WatchFace_SetInfoScrollDetail(uint8_t scrolling);
+static void WatchFace_ScrollSettle(lv_timer_t *timer);
 
 void WatchFace_Create(void)
 {
+    /* 创建透明可点击矩形，扩展小图标的实际触摸面积。 */
+    /* 一次性建立三页对象树、恢复 EEPROM 中的选中页并启动必要 timer。 */
     lv_obj_t *screen = lv_scr_act();
     lv_meter_scale_t *scale;
     lv_coord_t width;
@@ -208,10 +234,17 @@ void WatchFace_Create(void)
     lv_obj_add_flag(s_pager, LV_OBJ_FLAG_SCROLL_ONE);
     lv_obj_clear_flag(s_pager, LV_OBJ_FLAG_SCROLL_ELASTIC);
     lv_obj_set_scrollbar_mode(s_pager, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_bg_opa(s_pager, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_pager, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_pager, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_pager, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_pager, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_pager, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_column(s_pager, 0, LV_PART_MAIN);
+    lv_obj_set_style_anim_time(s_pager, 160U, LV_PART_MAIN);
+    lv_obj_add_event_cb(s_pager,
+                        WatchFace_PagerEvent,
+                        LV_EVENT_SCROLL_BEGIN,
+                        NULL);
     lv_obj_add_event_cb(s_pager,
                         WatchFace_PagerEvent,
                         LV_EVENT_SCROLL_END,
@@ -229,7 +262,9 @@ void WatchFace_Create(void)
     lv_obj_set_size(s_analog_page, width, height);
     lv_obj_clear_flag(s_analog_page,
                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_opa(s_analog_page, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_analog_page, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_analog_page, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_analog_page, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_analog_page, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_analog_page, 0, LV_PART_MAIN);
 
@@ -254,6 +289,7 @@ void WatchFace_Create(void)
     lv_obj_set_style_pad_all(s_meter, WATCH_FACE_METER_PAD, LV_PART_MAIN);
 
     scale = lv_meter_add_scale(s_meter);
+    s_meter_scale = scale;
     /*
      * One unit is 10 ms and the full range is 12 hours. 4,320,000 also
      * keeps LVGL 8.2's 32-bit lv_map(value * 360) arithmetic overflow-safe.
@@ -344,7 +380,9 @@ void WatchFace_Create(void)
     lv_obj_set_size(s_info_page, width, height);
     lv_obj_clear_flag(s_info_page,
                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_opa(s_info_page, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_info_page, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_info_page, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_info_page, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_info_page, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_info_page, 0, LV_PART_MAIN);
     WatchFace_CreateInfo(s_info_page);
@@ -371,7 +409,9 @@ void WatchFace_Create(void)
     lv_obj_set_size(s_jelly_page, width, height);
     lv_obj_clear_flag(s_jelly_page,
                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_opa(s_jelly_page, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_jelly_page, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_jelly_page, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_jelly_page, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_jelly_page, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_jelly_page, 0, LV_PART_MAIN);
     WatchFace_CreateJelly(s_jelly_page);
@@ -414,7 +454,15 @@ void WatchFace_Create(void)
 
 void WatchFace_Destroy(void)
 {
+    /* 必须先停止所有 RTC/LVGL timer，再删除它们将要访问的对象。 */
     /* Stop all RTC/LVGL work before deleting its target objects. */
+    if(s_scroll_settle_timer != NULL) {
+        /* Do not lose the just-selected face if another page is entered during
+           the short post-snap settling interval. */
+        DeviceManager_SetWatchFace(s_selected_face);
+        lv_timer_del(s_scroll_settle_timer);
+        s_scroll_settle_timer = NULL;
+    }
     if(s_second_timer != NULL) {
         lv_timer_del(s_second_timer);
         s_second_timer = NULL;
@@ -482,6 +530,7 @@ void WatchFace_Destroy(void)
     s_hour_hand_inner = NULL;
     s_minute_hand = NULL;
     s_minute_hand_inner = NULL;
+    s_meter_scale = NULL;
     s_second_draw_obj = NULL;
     s_dial_center_x = 0;
     s_dial_center_y = 0;
@@ -490,6 +539,8 @@ void WatchFace_Destroy(void)
     s_second_angle_valid = 0U;
     s_second_visible = 0U;
     s_ambient = 0U;
+    s_face_scrolling = 0U;
+    s_notification_refresh_pending = 0U;
 
     /* Force the date label to be initialized again on the next entry. */
     s_last_year = 0xFFU;
@@ -513,6 +564,12 @@ void WatchFace_Destroy(void)
 
 void WatchFace_RefreshNotificationIndicator(void)
 {
+    /* 滑动期间推迟红点变化，避免一个很小的状态变化打断全屏滚动帧。 */
+    if(s_face_scrolling != 0U) {
+        s_notification_refresh_pending = 1U;
+        return;
+    }
+    s_notification_refresh_pending = 0U;
     if(NotificationManager_GetCount() != 0U) {
         if(s_notification_dot != NULL) {
             lv_obj_clear_flag(s_notification_dot, LV_OBJ_FLAG_HIDDEN);
@@ -539,11 +596,13 @@ void WatchFace_RefreshNotificationIndicator(void)
 
 uint8_t WatchFace_GetSelectedIndex(void)
 {
+    /* AppUI 根据索引决定状态栏以及右上角电池是否可见。 */
     return s_selected_face;
 }
 
 void WatchFace_SetAmbientMode(uint8_t enabled)
 {
+    /* AOD 切换只改变对象可见性和 timer，不销毁三页对象树。 */
     s_ambient = (enabled != 0U) ? 1U : 0U;
 
     if((s_meter == NULL) ||
@@ -602,6 +661,7 @@ void WatchFace_SetAmbientMode(uint8_t enabled)
 
 static void WatchFace_MeterDrawEvent(lv_event_t *event)
 {
+    /* 在 meter 绘制描述符阶段修改刻度标签/指针样式，不额外创建对象。 */
     lv_obj_draw_part_dsc_t *draw_part;
 
     draw_part = lv_event_get_draw_part_dsc(event);
@@ -642,6 +702,7 @@ static void WatchFace_MeterDrawEvent(lv_event_t *event)
 
 static void WatchFace_ScreenEvent(lv_event_t *event)
 {
+    /* 统一处理表盘手势：通知入口和长按设置时间。 */
     lv_indev_t *indev;
     lv_event_code_t code = lv_event_get_code(event);
 
@@ -671,18 +732,33 @@ static void WatchFace_ScreenEvent(lv_event_t *event)
 
 static void WatchFace_PagerEvent(lv_event_t *event)
 {
+    /* BEGIN 暂停动态内容；END 按三页距离选最近页并延迟恢复复杂绘制。 */
     lv_area_t analog_coords;
     lv_area_t info_coords;
     lv_area_t jelly_coords;
     int32_t analog_distance;
     int32_t info_distance;
     int32_t jelly_distance;
+    lv_event_code_t code = lv_event_get_code(event);
 
-    (void)event;
     if((s_pager == NULL) ||
        (s_analog_page == NULL) ||
        (s_info_page == NULL) ||
        (s_jelly_page == NULL)) return;
+
+    if(code == LV_EVENT_SCROLL_BEGIN) {
+        if(s_scroll_settle_timer != NULL) {
+            lv_timer_del(s_scroll_settle_timer);
+            s_scroll_settle_timer = NULL;
+        }
+        s_face_scrolling = 1U;
+        WatchFace_PauseAllTimers();
+        WatchFace_SetMeterScrollDetail(1U);
+        WatchFace_SetInfoScrollDetail(1U);
+        StatusBar_SetUpdatesPaused(1U);
+        return;
+    }
+    if(code != LV_EVENT_SCROLL_END) return;
 
     lv_obj_get_coords(s_analog_page, &analog_coords);
     lv_obj_get_coords(s_info_page, &info_coords);
@@ -703,9 +779,18 @@ static void WatchFace_PagerEvent(lv_event_t *event)
     else {
         s_selected_face = 0U;
     }
-    DeviceManager_SetWatchFace(s_selected_face);
-    WatchFace_ApplyStatusBar();
-    WatchFace_ApplySelectedTimers();
+    /* Keep the lightweight scroll representation for one refresh interval.
+       Rebuilding a 61-tick meter and five arcs inside LV_EVENT_SCROLL_END made
+       the final snap frame much slower than all preceding frames. */
+    s_scroll_settle_timer = lv_timer_create(WatchFace_ScrollSettle,
+                                            WATCH_FACE_SCROLL_SETTLE_MS,
+                                            NULL);
+    if(s_scroll_settle_timer != NULL) {
+        lv_timer_set_repeat_count(s_scroll_settle_timer, 1);
+    }
+    else {
+        WatchFace_ScrollSettle(NULL);
+    }
 }
 
 static lv_obj_t *WatchFace_CreateInfoArc(lv_obj_t *parent,
@@ -756,6 +841,7 @@ static void WatchFace_CreateInfoHitArea(lv_obj_t *parent,
 
 static void WatchFace_CreateInfo(lv_obj_t *parent)
 {
+    /* 创建信息表盘的时间、日期、五类传感器组件及透明点击热区。 */
     lv_obj_t *label;
     uint32_t i;
     static const lv_coord_t outline_x[8] = {-2, 2, 0, 0, -2, -2, 2, 2};
@@ -925,6 +1011,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
 
 static void WatchFace_CreateJelly(lv_obj_t *parent)
 {
+    /* 每个数字由多层错位 label 组成彩色果冻边缘，中心层形成饱满主体。 */
     static const lv_coord_t outline_x[8] = {-3, 3, 0, 0, -3, -3, 3, 3};
     static const lv_coord_t outline_y[8] = {0, 0, -3, 3, -3, 3, -3, 3};
     static const lv_coord_t digit_x[4] = {-58, 58, -58, 58};
@@ -951,6 +1038,10 @@ static void WatchFace_CreateJelly(lv_obj_t *parent)
                          ((layer < 8U) ? outline_x[layer] : 0),
                          digit_y[digit] +
                          ((layer < 8U) ? outline_y[layer] : 0));
+            if(layer < 8U) {
+                lv_obj_add_flag(s_jelly_digit_labels[digit][layer],
+                                LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
 
@@ -975,6 +1066,7 @@ static void WatchFace_CreateJelly(lv_obj_t *parent)
 static void WatchFace_ScheduleNextMinute(lv_timer_t *timer,
                                          const RTC_TimeTypeDef *time)
 {
+    /* 根据当前秒数把 timer 对齐到下一分钟边界，AOD 不做无用秒级唤醒。 */
     uint32_t period;
 
     if((timer == NULL) || (time == NULL)) return;
@@ -985,6 +1077,7 @@ static void WatchFace_ScheduleNextMinute(lv_timer_t *timer,
 
 static void WatchFace_UpdateJelly(lv_timer_t *timer)
 {
+    /* 只有小时或分钟变化时才替换四个数字文本，避免每秒重画大字体。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     static const lv_coord_t outline_x[8] = {-3, 3, 0, 0, -3, -3, 3, 3};
@@ -1026,7 +1119,9 @@ static void WatchFace_UpdateJelly(lv_timer_t *timer)
 
 static void WatchFace_SetJellyAmbient(uint8_t enabled)
 {
+    /* 正常模式显示实心中心；AOD 隐藏主体并显示切口形成轮廓。 */
     uint32_t digit;
+    uint32_t layer;
     uint32_t color;
 
     if(s_jelly_notification_dot == NULL) return;
@@ -1037,6 +1132,16 @@ static void WatchFace_SetJellyAmbient(uint8_t enabled)
         WatchFace_RefreshNotificationIndicator();
     }
     for(digit = 0U; digit < 4U; ++digit) {
+        for(layer = 0U; layer < 8U; ++layer) {
+            if(enabled != 0U) {
+                lv_obj_clear_flag(s_jelly_digit_labels[digit][layer],
+                                  LV_OBJ_FLAG_HIDDEN);
+            }
+            else {
+                lv_obj_add_flag(s_jelly_digit_labels[digit][layer],
+                                LV_OBJ_FLAG_HIDDEN);
+            }
+        }
         color = (enabled != 0U) ? 0x05070AU :
                 ((digit < 2U) ? 0x79CEFFU : 0x8DE8A8U);
         lv_obj_set_style_text_color(s_jelly_digit_labels[digit][8],
@@ -1050,6 +1155,7 @@ static void WatchFace_SetJellyAmbient(uint8_t enabled)
 
 static void WatchFace_InfoClickEvent(lv_event_t *event)
 {
+    /* 透明热区携带目标页面枚举，点击后交给 AppUI 延迟切页。 */
     AppUI_Page_t page;
     lv_indev_t *indev;
 
@@ -1065,6 +1171,7 @@ static void WatchFace_InfoClickEvent(lv_event_t *event)
 static void WatchFace_UpdateInfoTime(const RTC_TimeTypeDef *time,
                                      const RTC_DateTypeDef *date)
 {
+    /* 时间或日期缓存变化时才更新信息表盘对应 label。 */
     static const char * const weekdays[7] = {
         "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"
     };
@@ -1108,6 +1215,7 @@ static void WatchFace_UpdateInfoTime(const RTC_TimeTypeDef *time,
 
 static void WatchFace_UpdateInfo(lv_timer_t *timer)
 {
+    /* 逐字段比较 DeviceManager 缓存，仅修改真正变化的 label/arc/bar。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     const Battery_Data_t *battery;
@@ -1215,6 +1323,7 @@ static void WatchFace_UpdateInfo(lv_timer_t *timer)
 
 static void WatchFace_SetInfoAmbient(uint8_t enabled)
 {
+    /* AOD 下隐藏传感器组件，只保留专用低复杂度时间轮廓组。 */
     if((s_info_content == NULL) || (s_info_ambient_group == NULL)) return;
 
     if(enabled != 0U) {
@@ -1233,13 +1342,17 @@ static void WatchFace_SetInfoAmbient(uint8_t enabled)
 
 static void WatchFace_ApplySelectedTimers(void)
 {
+    /* 核心性能策略：三页常驻，但只有当前可见表盘对应的 timer 运行。 */
+    if(s_face_scrolling != 0U) {
+        WatchFace_PauseAllTimers();
+        return;
+    }
     if(s_second_timer != NULL) {
         if((s_selected_face == 0U) && (s_ambient == 0U)) {
             s_second_visible = 1U;
             s_second_angle_valid = 0U;
             WatchFace_UpdateSecond(NULL);
             lv_timer_resume(s_second_timer);
-            lv_timer_ready(s_second_timer);
         }
         else {
             if((s_second_angle_valid != 0U) && (s_second_visible != 0U)) {
@@ -1250,10 +1363,23 @@ static void WatchFace_ApplySelectedTimers(void)
         }
     }
 
+    if((s_minute_timer != NULL) && (s_hour_timer != NULL)) {
+        if(s_selected_face == 0U) {
+            WatchFace_UpdateMinute(NULL);
+            WatchFace_UpdateHour(NULL);
+            lv_timer_resume(s_minute_timer);
+            lv_timer_resume(s_hour_timer);
+        }
+        else {
+            lv_timer_pause(s_minute_timer);
+            lv_timer_pause(s_hour_timer);
+        }
+    }
+
     if(s_info_timer != NULL) {
         if(s_selected_face == WATCH_FACE_INFO_INDEX) {
+            WatchFace_UpdateInfo(s_info_timer);
             lv_timer_resume(s_info_timer);
-            lv_timer_ready(s_info_timer);
         }
         else {
             lv_timer_pause(s_info_timer);
@@ -1264,7 +1390,6 @@ static void WatchFace_ApplySelectedTimers(void)
         if(s_selected_face == WATCH_FACE_JELLY_INDEX) {
             WatchFace_UpdateJelly(s_jelly_timer);
             lv_timer_resume(s_jelly_timer);
-            lv_timer_ready(s_jelly_timer);
         }
         else {
             lv_timer_pause(s_jelly_timer);
@@ -1272,8 +1397,106 @@ static void WatchFace_ApplySelectedTimers(void)
     }
 }
 
+static void WatchFace_PauseAllTimers(void)
+{
+    /* 滑动时冻结 RTC/传感器更新，保证手势中没有额外脏区插入。 */
+    if(s_second_timer != NULL) lv_timer_pause(s_second_timer);
+    if(s_minute_timer != NULL) lv_timer_pause(s_minute_timer);
+    if(s_hour_timer != NULL) lv_timer_pause(s_hour_timer);
+    if(s_info_timer != NULL) lv_timer_pause(s_info_timer);
+    if(s_jelly_timer != NULL) lv_timer_pause(s_jelly_timer);
+}
+
+static void WatchFace_SetMeterScrollDetail(uint8_t scrolling)
+{
+    /* 滑动中把 61 个刻度降为 12 个小时刻度，减少 meter 绘制次数。 */
+    if((s_meter == NULL) || (s_meter_scale == NULL)) return;
+
+    if(scrolling != 0U) {
+        /* During a full-screen transition keep only the twelve hour marks.
+           Restoring the complete scale after snap invalidates the meter once. */
+        lv_meter_set_scale_ticks(s_meter,
+                                 s_meter_scale,
+                                 13,
+                                 3,
+                                 13,
+                                 lv_color_hex(0xE7EBF0U));
+        lv_meter_set_scale_major_ticks(s_meter,
+                                       s_meter_scale,
+                                       1,
+                                       3,
+                                       13,
+                                       lv_color_hex(0xE7EBF0U),
+                                       8);
+    }
+    else {
+        lv_meter_set_scale_ticks(s_meter,
+                                 s_meter_scale,
+                                 61,
+                                 1,
+                                 7,
+                                 lv_color_hex(0x59616BU));
+        lv_meter_set_scale_major_ticks(s_meter,
+                                       s_meter_scale,
+                                       5,
+                                       3,
+                                       13,
+                                       lv_color_hex(0xE7EBF0U),
+                                       8);
+    }
+}
+
+static void WatchFace_SetInfoScrollDetail(uint8_t scrolling)
+{
+    /* 圆弧和进度条最重，滑动期间只隐藏这些装饰性组件。 */
+    lv_obj_t *objects[] = {
+        s_info_battery_arc,
+        s_info_steps_bar,
+        s_info_temp_arc,
+        s_info_humi_arc,
+        s_info_heart_arc
+    };
+    uint32_t i;
+
+    for(i = 0U; i < (sizeof(objects) / sizeof(objects[0])); ++i) {
+        if(objects[i] == NULL) continue;
+        if(scrolling != 0U) {
+            lv_obj_add_flag(objects[i], LV_OBJ_FLAG_HIDDEN);
+        }
+        else {
+            lv_obj_clear_flag(objects[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void WatchFace_ScrollSettle(lv_timer_t *timer)
+{
+    /* 吸附结束 80 ms 后恢复当前页，避开最后一个滚动关键帧。 */
+    (void)timer;
+    s_scroll_settle_timer = NULL;
+
+    /* Only restore detail on the page that is actually visible. Off-screen
+       pages remain in their cheaper representation until selected again. */
+    if(s_selected_face == 0U) {
+        WatchFace_SetMeterScrollDetail(0U);
+    }
+    if(s_selected_face == WATCH_FACE_INFO_INDEX) {
+        WatchFace_SetInfoScrollDetail(0U);
+    }
+
+    DeviceManager_SetWatchFace(s_selected_face);
+    s_face_scrolling = 0U;
+    WatchFace_ApplyStatusBar();
+    WatchFace_ApplySelectedTimers();
+    StatusBar_SetUpdatesPaused(0U);
+    if(s_notification_refresh_pending != 0U) {
+        WatchFace_RefreshNotificationIndicator();
+    }
+}
+
 static void WatchFace_ApplyStatusBar(void)
 {
+    /* 三个表盘的状态栏设计不同，在选中页稳定后统一应用规则。 */
     if(s_ambient != 0U) {
         StatusBar_SetVisible(0U);
         return;
@@ -1290,6 +1513,7 @@ static void WatchFace_ApplyStatusBar(void)
 static uint8_t WatchFace_ReadRtc(RTC_TimeTypeDef *time,
                                  RTC_DateTypeDef *date)
 {
+    /* 严格按 Time→Date 顺序读取影子寄存器，任一失败返回 0。 */
     if((time == NULL) || (date == NULL)) return 0U;
     if(HAL_RTC_GetTime(&hrtc, time, RTC_FORMAT_BIN) != HAL_OK) return 0U;
     if(HAL_RTC_GetDate(&hrtc, date, RTC_FORMAT_BIN) != HAL_OK) return 0U;
@@ -1298,6 +1522,7 @@ static uint8_t WatchFace_ReadRtc(RTC_TimeTypeDef *time,
 
 static uint32_t WatchFace_GetFraction100(const RTC_TimeTypeDef *time)
 {
+    /* 将 RTC 亚秒寄存器换算成一秒内的 0~99 进度，供秒针插值。 */
     uint32_t fraction_100 = 0U;
 
     /* RTC subsecond counter runs down from SecondFraction to zero. */
@@ -1311,6 +1536,7 @@ static uint32_t WatchFace_GetFraction100(const RTC_TimeTypeDef *time)
 
 static void WatchFace_GetSecondTip(uint16_t angle_deg, lv_point_t *tip)
 {
+    /* 用整数坐标求秒针尖端，避免高频绘制路径中的浮点开销。 */
     int32_t sin_value;
     int32_t cos_value;
 
@@ -1327,6 +1553,7 @@ static void WatchFace_GetSecondTip(uint16_t angle_deg, lv_point_t *tip)
 static void WatchFace_GetInterpolatedSecondTip(uint16_t angle_x100,
                                                lv_point_t *tip)
 {
+    /* 在相邻整数角端点之间做线性插值，保留百分之一角度的平滑度。 */
     lv_point_t low_tip;
     lv_point_t high_tip;
     uint16_t low_deg;
@@ -1360,6 +1587,7 @@ static void WatchFace_GetInterpolatedSecondTip(uint16_t angle_x100,
 
 static void WatchFace_InvalidateSecond(uint16_t angle_x100)
 {
+    /* 只使秒针覆盖的小矩形失效，不重绘整个 meter。 */
     lv_point_t low_tip;
     lv_point_t high_tip;
     lv_point_t points[4];
@@ -1435,6 +1663,7 @@ static void WatchFace_InvalidateSecond(uint16_t angle_x100)
 
 static void WatchFace_SetSecondAngle(uint16_t angle_x100)
 {
+    /* 先标记旧针脏区，保存新角度后再标记新针脏区。 */
     angle_x100 %= (360U * WATCH_FACE_SECOND_ANGLE_SCALE);
     if(s_second_draw_obj == NULL) return;
     if((s_second_angle_valid != 0U) &&
@@ -1452,6 +1681,7 @@ static void WatchFace_SetSecondAngle(uint16_t angle_x100)
 
 static void WatchFace_SecondDrawEvent(lv_event_t *event)
 {
+    /* 秒针为独立自绘对象，绘制会被当前 LVGL 脏区自动裁剪。 */
     lv_draw_ctx_t *draw_ctx;
     lv_draw_line_dsc_t line_dsc;
     lv_point_t center;
@@ -1481,6 +1711,7 @@ static void WatchFace_SecondDrawEvent(lv_event_t *event)
 
 static void WatchFace_UpdateDate(const RTC_DateTypeDef *date)
 {
+    /* 年月日未变化时直接返回，日期 label 通常一天只重画一次。 */
     if((date == NULL) || (s_date_label == NULL)) return;
 
     if((date->Year != s_last_year) ||
@@ -1504,6 +1735,7 @@ static void WatchFace_UpdateDate(const RTC_DateTypeDef *date)
 
 static void WatchFace_UpdateSecond(lv_timer_t *timer)
 {
+    /* 读取 RTC 秒和亚秒，计算百分之一角度并平滑移动独立秒针。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     uint32_t fraction_100;
@@ -1525,6 +1757,7 @@ static void WatchFace_UpdateSecond(lv_timer_t *timer)
 
 static void WatchFace_UpdateMinute(lv_timer_t *timer)
 {
+    /* 分针约 45 秒同步一次；角度同时包含秒数，避免整分钟突跳。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     uint32_t fraction_100;
@@ -1547,6 +1780,7 @@ static void WatchFace_UpdateMinute(lv_timer_t *timer)
 
 static void WatchFace_UpdateHour(lv_timer_t *timer)
 {
+    /* 时针约 2 分钟同步一次；角度同时包含分钟数。 */
     RTC_TimeTypeDef time = {0};
     RTC_DateTypeDef date = {0};
     uint32_t fraction_100;

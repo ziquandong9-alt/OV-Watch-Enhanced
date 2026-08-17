@@ -3,6 +3,7 @@
 
 static void LCD_WriteBufferBlocking(const uint8_t *buffer, uint16_t length)
 {
+    /* 初始化命令量小，阻塞 SPI 能简化上电时序。 */
     LCD_WaitForDMA();
 
     if (LL_SPI_IsEnabled(SPI1) == 0U)
@@ -40,6 +41,7 @@ static void LCD_WriteBufferBlocking(const uint8_t *buffer, uint16_t length)
 
 void LCD_GPIO_Init(void)
 {
+    /* 配置 RES/DC/CS/BLK 控制脚并设置安全初始电平。 */
     GPIO_InitTypeDef gpio = {0};
 
     __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -57,11 +59,13 @@ void LCD_GPIO_Init(void)
 
 void LCD_Writ_Bus(uint8_t data)
 {
+    /* 最底层单字节 SPI 写，发送前确保无异步 DMA 占用。 */
     LCD_WriteBufferBlocking(&data, 1U);
 }
 
 void LCD_WR_REG(uint8_t command)
 {
+    /* DC=0 表示 ST7789 命令。 */
     LCD_WaitForDMA();
     LCD_DC_LOW();
     LCD_WriteBufferBlocking(&command, 1U);
@@ -70,12 +74,14 @@ void LCD_WR_REG(uint8_t command)
 
 void LCD_WR_DATA8(uint8_t data)
 {
+    /* DC=1 表示命令参数或像素数据。 */
     LCD_DC_HIGH();
     LCD_WriteBufferBlocking(&data, 1U);
 }
 
 void LCD_WR_DATA(uint16_t data)
 {
+    /* 16 位参数按高字节在前发送。 */
     uint8_t bytes[2];
 
     bytes[0] = (uint8_t)(data >> 8);
@@ -87,6 +93,7 @@ void LCD_WR_DATA(uint16_t data)
 
 void LCD_Address_Set(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 {
+    /* 写 CASET/RASET/RAMWR，限定下一批像素的矩形窗口。 */
     LCD_WR_REG(0x2AU);
     LCD_WR_DATA(x1);
     LCD_WR_DATA(x2);
@@ -100,6 +107,7 @@ void LCD_Address_Set(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 
 void LCD_Set_Light(uint8_t percent)
 {
+    /* 把 0~100% 转换为 TIM3 PWM 比较值并夹紧输入。 */
     if (percent > 100U)
     {
         percent = 100U;
@@ -112,28 +120,33 @@ void LCD_Set_Light(uint8_t percent)
 
 void LCD_Open_Light(void)
 {
+    /* 启动背光 PWM，并恢复默认/最近设置的占空比。 */
     (void)HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
 }
 
 void LCD_Close_Light(void)
 {
+    /* 将背光占空比降为 0；LCD 控制器本身仍可能工作。 */
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0U);
 }
 
 void LCD_ST7789_SleepIn(void)
 {
+    /* 等 DMA 后发送 Sleep In，进入 STOP 前必须完成。 */
     LCD_WR_REG(0x10U);
     HAL_Delay(120U);
 }
 
 void LCD_ST7789_SleepOut(void)
 {
+    /* Sleep Out 后等待面板内部电源稳定再刷新。 */
     LCD_WR_REG(0x11U);
     HAL_Delay(120U);
 }
 
 void LCD_Init(void)
 {
+    /* 硬复位并配置像素格式、方向、Gamma 和显示开关。 */
     static const uint8_t gamma_positive[] = {
         0xD0U, 0x04U, 0x0DU, 0x11U, 0x13U, 0x2BU, 0x3FU,
         0x54U, 0x4CU, 0x18U, 0x0DU, 0x0BU, 0x1FU, 0x23U

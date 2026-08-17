@@ -14,6 +14,8 @@
 #include "CST816.h"
 #include "lcd_init.h"
 
+/* CST816 到 LVGL 指针设备的适配层；当前工程只注册触摸屏一种输入设备。 */
+
 /*********************
  *      DEFINES
  *********************/
@@ -47,6 +49,7 @@ extern CST816_Info	CST816_Instance;
 
 void lv_port_indev_init(void)
 {
+    /* indev_drv 为 static，注册后 LVGL 会在整个运行期继续引用。 */
     /**
      * Here you will find example implementation of input devices supported by LittelvGL:
      *  - Touchpad
@@ -87,13 +90,14 @@ void lv_port_indev_init(void)
 /*Initialize your touchpad*/
 static void touchpad_init(void)
 {
-    /*Your code comes here*/
+    /* 触摸芯片已在 main 的 USER CODE 中初始化，此处无需重复复位。 */
 }
 
 /*Will be called by the library to read the touchpad*/
 static void touchpad_read(lv_indev_drv_t *indev_drv,
                           lv_indev_data_t *data)
 {
+    /* 保留最后坐标：释放状态仍需提供稳定位置，符合 LVGL 输入约定。 */
     static lv_coord_t last_x = 0;
     static lv_coord_t last_y = 0;
 
@@ -101,6 +105,7 @@ static void touchpad_read(lv_indev_drv_t *indev_drv,
 
     (void)indev_drv;
 
+    /* 一轮只读一次手指数，避免同一判断内重复 I2C 访问。 */
     finger_num = CST816_Get_FingerNum();
 
     if ((finger_num != 0x00U) && (finger_num != 0xFFU))
@@ -110,7 +115,7 @@ static void touchpad_read(lv_indev_drv_t *indev_drv,
         last_x = (lv_coord_t)CST816_Instance.X_Pos;
         last_y = (lv_coord_t)CST816_Instance.Y_Pos;
 
-        /* 防止异常坐标传给 LVGL */
+        /* 坐标夹紧到逻辑分辨率，防止通讯毛刺导致 LVGL 命中越界区域。 */
         if (last_x < 0)
             last_x = 0;
         else if (last_x >= LCD_W)
@@ -134,7 +139,7 @@ static void touchpad_read(lv_indev_drv_t *indev_drv,
 /*Return true is the touchpad is pressed*/
 static bool touchpad_is_pressed(void)
 {
-    /*Your code comes here*/
+    /* 兼容保留接口；0xFF 被视为 I2C 错误而不是按下。 */
 	if(CST816_Get_FingerNum()!=0x00 && CST816_Get_FingerNum()!=0xFF)
 	{return true;}
 	else
@@ -144,7 +149,7 @@ static bool touchpad_is_pressed(void)
 /*Get the x and y coordinates if the touchpad is pressed*/
 static void touchpad_get_xy(lv_coord_t * x, lv_coord_t * y)
 {
-    /*Your code comes here*/
+    /* 兼容保留接口；当前实际 read_cb 已直接完成坐标读取。 */
 		CST816_Get_XY_AXIS();
     (*x) = CST816_Instance.X_Pos;
     (*y) = CST816_Instance.Y_Pos;
