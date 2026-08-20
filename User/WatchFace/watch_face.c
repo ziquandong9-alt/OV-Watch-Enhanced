@@ -47,7 +47,7 @@
 LV_FONT_DECLARE(ui_font_iconfont16);
 LV_FONT_DECLARE(ui_font_iconfont24);
 LV_FONT_DECLARE(ui_font_iconfont28);
-LV_FONT_DECLARE(ui_font_Cuyuan135);
+LV_FONT_DECLARE(ui_font_Fredoka135);
 
 #define INFO_ICON_BATTERY              "\xEE\x9A\x8F" /* U+E68F */
 #define INFO_ICON_STEPS                "\xEE\x99\xB6" /* U+E676 */
@@ -1034,7 +1034,7 @@ static void WatchFace_CreateJelly(lv_obj_t *parent)
             s_jelly_digit_labels[digit][layer] = lv_label_create(parent);
             lv_label_set_text(s_jelly_digit_labels[digit][layer], "0");
             lv_obj_set_style_text_font(s_jelly_digit_labels[digit][layer],
-                                       &ui_font_Cuyuan135,
+                                       &ui_font_Fredoka135,
                                        LV_PART_MAIN);
             lv_obj_set_style_text_color(s_jelly_digit_labels[digit][layer],
                                         lv_color_hex(digit_color[digit]),

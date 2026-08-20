@@ -21,13 +21,25 @@ License files are retained under:
 
 LVGL source is stored under `ThirdParty/LVGL`. Preserve all upstream copyright and license headers when updating or redistributing it.
 
-## Font and icon glyph data — publication review required
+## Fredoka
 
-Generated files under `User/App/Fonts` include metadata referencing `方正粗圆简体.TTF` and `iconfont.ttf`. No standalone redistribution license for those source fonts was found in this local project during the August 2026 publication audit.
+The jelly watch face digit subset in `User/App/Fonts/ui_font_Fredoka135.c`
+is generated from Fredoka Bold:
 
-The glyph data was inherited from or derived from assets used by the upstream project, but that fact alone is not independent proof of the underlying font license. Before changing the GitHub repository from private to public, the maintainer should do one of the following:
+- Copyright 2016 The Fredoka Project Authors
+- Source: https://github.com/hafontia-zz/Fredoka-One
+- Source revision: `35c584ff23450c9bcdf8819706e12fcdeefe1712`
+- License: SIL Open Font License 1.1
+- Local license copy: `User/App/Fonts/Fredoka-OFL.txt`
 
-1. obtain and document permission covering embedded glyph redistribution; or
-2. replace the glyph data with a font carrying a clearly compatible open-font license and include that license.
+The generated subset contains only `0123456789:` and may be embedded and
+redistributed with the firmware under the terms of the OFL.
+
+## Icon glyph data — publication review required
+
+Generated icon files under `User/App/Fonts` reference `iconfont.ttf`. No
+standalone redistribution license for that source font was found in this local
+project during the August 2026 publication audit. Confirm its source license or
+replace the icon glyphs before changing this repository from private to public.
 
 Do not add Apple promotional images, Apple logos or other reference artwork to this repository. The jelly-style watch face should be documented as an independently implemented design inspired by a general visual style, not as an official Apple watch face.
