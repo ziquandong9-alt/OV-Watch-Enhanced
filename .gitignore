@@ -1,0 +1,22 @@
+# Keil MDK build output
+MDK-ARM/My_OV_Watch/
+MDK-ARM/*.log
+MDK-ARM/.vscode/
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+
+*.o
+*.d
+*.crf
+*.axf
+*.map
+*.lnp
+*.dep
+*.build_log.htm
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
