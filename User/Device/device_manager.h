@@ -62,6 +62,11 @@ const Device_HeartData_t *DeviceManager_GetHeart(void);
 const Device_MotionData_t *DeviceManager_GetMotion(void);
 const Device_CompassData_t *DeviceManager_GetCompass(void);
 
+/* 今日运动目标保存于设置记录；达标事件由 UI 读后清除，只祝贺一次。 */
+uint32_t DeviceManager_GetMotionGoal(void);
+void DeviceManager_SetMotionGoal(uint32_t steps);
+uint8_t DeviceManager_TakeMotionGoalReachedEvent(void);
+
 uint8_t DeviceManager_GetWristWakeEnabled(void);
 void DeviceManager_SetWristWakeEnabled(uint8_t enabled);
 uint8_t DeviceManager_GetAmbientEnabled(void);

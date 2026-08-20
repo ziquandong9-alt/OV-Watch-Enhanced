@@ -21,13 +21,15 @@ typedef struct {
 } MenuItem_t;
 
 static lv_obj_t *s_menu_list;
+/* 页面对象会在进入子菜单时销毁，因此单独保存滚动坐标供返回时恢复。 */
+static lv_coord_t s_saved_scroll_y;
 
 /* 表驱动菜单：新增功能只需增加一行，不必复制一套事件处理代码。 */
 static const MenuItem_t s_menu_items[] = {
     {"Calendar",     MENU_ICON_CALENDAR,     &ui_font_iconfont30, 0xFF8080U, APP_UI_PAGE_DATE_SETTING},
     {"Stopwatch",    MENU_ICON_TIMER,        &ui_font_iconfont34, 0x3A9DFFU, APP_UI_PAGE_STOPWATCH},
     {"Calculator",   MENU_ICON_CALCULATOR,   &lv_font_montserrat_20, 0xF39A2EU, APP_UI_PAGE_CALCULATOR},
-    {"Steps",        MENU_ICON_TIMER,        &ui_font_iconfont34, 0xDC80E6U, APP_UI_PAGE_MOTION},
+    {"Steps",        NULL,                   NULL,                  0xDC80E6U, APP_UI_PAGE_MOTION},
     {"Environment",  MENU_ICON_ENVIRONMENT,  &ui_font_iconfont34, 0x009632U, APP_UI_PAGE_ENVIRONMENT},
     {"Heart Rate",   MENU_ICON_HEART_RATE,   &ui_font_iconfont34, 0xC80000U, APP_UI_PAGE_HEART},
     {"Compass",      MENU_ICON_COMPASS,      &ui_font_iconfont34, 0x800080U, APP_UI_PAGE_COMPASS},
@@ -80,18 +82,45 @@ static void MenuPage_ItemDrawEvent(lv_event_t *event)
     circle_dsc.border_opa = LV_OPA_TRANSP;
     lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
 
-    /* 图标字形需要按字体行高垂直居中，不能假设所有字体高度相同。 */
     lv_draw_label_dsc_init(&label_dsc);
-    label_dsc.font = item->icon_font;
-    label_dsc.color = lv_color_hex(0xFFFFFFU);
-    label_dsc.opa = LV_OPA_COVER;
-    label_dsc.align = LV_TEXT_ALIGN_CENTER;
-    line_height = lv_font_get_line_height(item->icon_font);
-    draw_area.x1 = panel_area.x1 + 12;
-    draw_area.x2 = draw_area.x1 + 39;
-    draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
-    draw_area.y2 = draw_area.y1 + line_height - 1;
-    lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->icon_text, NULL);
+    if(item->target_page == APP_UI_PAGE_MOTION) {
+        /* 步数使用两枚错位脚印，避免继续复用 Stopwatch 的计时器图标。 */
+        circle_dsc.bg_color = lv_color_hex(0xFFFFFFU);
+        circle_dsc.radius = LV_RADIUS_CIRCLE;
+        draw_area.x1 = panel_area.x1 + 22;
+        draw_area.x2 = panel_area.x1 + 28;
+        draw_area.y1 = panel_area.y1 + 37;
+        draw_area.y2 = panel_area.y1 + 50;
+        lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
+        draw_area.x1 = panel_area.x1 + 21;
+        draw_area.x2 = panel_area.x1 + 29;
+        draw_area.y1 = panel_area.y1 + 31;
+        draw_area.y2 = panel_area.y1 + 38;
+        lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
+        draw_area.x1 = panel_area.x1 + 35;
+        draw_area.x2 = panel_area.x1 + 41;
+        draw_area.y1 = panel_area.y1 + 24;
+        draw_area.y2 = panel_area.y1 + 37;
+        lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
+        draw_area.x1 = panel_area.x1 + 34;
+        draw_area.x2 = panel_area.x1 + 42;
+        draw_area.y1 = panel_area.y1 + 18;
+        draw_area.y2 = panel_area.y1 + 25;
+        lv_draw_rect(draw_ctx, &circle_dsc, &draw_area);
+    }
+    else {
+        /* 图标字形需要按字体行高垂直居中，不能假设所有字体高度相同。 */
+        label_dsc.font = item->icon_font;
+        label_dsc.color = lv_color_hex(0xFFFFFFU);
+        label_dsc.opa = LV_OPA_COVER;
+        label_dsc.align = LV_TEXT_ALIGN_CENTER;
+        line_height = lv_font_get_line_height(item->icon_font);
+        draw_area.x1 = panel_area.x1 + 12;
+        draw_area.x2 = draw_area.x1 + 39;
+        draw_area.y1 = panel_area.y1 + (70 - line_height) / 2;
+        draw_area.y2 = draw_area.y1 + line_height - 1;
+        lv_draw_label(draw_ctx, &label_dsc, &draw_area, item->icon_text, NULL);
+    }
 
     /* 复用 label_dsc 绘制名称，只替换字体、颜色、对齐方式和区域。 */
     label_dsc.font = &lv_font_montserrat_14;
@@ -171,10 +200,17 @@ void MenuPage_Create(void)
     for(i = 0U; i < (sizeof(s_menu_items) / sizeof(s_menu_items[0])); i++) {
         MenuPage_CreateItem(&s_menu_items[i]);
     }
+    /* Flex 必须先完成布局，LVGL 才知道可滚动的总高度。 */
+    lv_obj_update_layout(s_menu_list);
+    lv_obj_scroll_to_y(s_menu_list, s_saved_scroll_y, LV_ANIM_OFF);
 }
 
 void MenuPage_Destroy(void)
 {
+    /* 在对象仍有效时记住位置；重建菜单后会回到进入子页面前的视野。 */
+    if((s_menu_list != NULL) && lv_obj_is_valid(s_menu_list)) {
+        s_saved_scroll_y = lv_obj_get_scroll_y(s_menu_list);
+    }
     /* 子 panel 会由 clean 递归删除，只需把模块保存的根指针清空。 */
     lv_obj_clean(lv_scr_act());
     s_menu_list = NULL;

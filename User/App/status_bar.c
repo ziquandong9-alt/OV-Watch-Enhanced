@@ -80,6 +80,14 @@ void StatusBar_SetBatteryVisible(uint8_t visible)
     else lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
 }
 
+void StatusBar_SetBleVisible(uint8_t visible)
+{
+    /* 子页面左上角留给触摸返回键，避免 BLE 文本与按钮重叠。 */
+    if((s_ble == NULL) || (lv_obj_is_valid(s_ble) == false)) return;
+    if(visible != 0U) lv_obj_clear_flag(s_ble, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_ble, LV_OBJ_FLAG_HIDDEN);
+}
+
 void StatusBar_SetUpdatesPaused(uint8_t paused)
 {
     if(s_timer == NULL) return;

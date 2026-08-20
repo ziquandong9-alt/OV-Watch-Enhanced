@@ -73,6 +73,8 @@ void Error_Handler(void);
 #define KEY1_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
+#define POWER_EN_Pin GPIO_PIN_3
+#define POWER_EN_GPIO_Port GPIOA
 
 /* USER CODE END Private defines */
 

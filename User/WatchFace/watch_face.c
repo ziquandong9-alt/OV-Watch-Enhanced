@@ -715,6 +715,13 @@ static void WatchFace_ScreenEvent(lv_event_t *event)
             lv_indev_wait_release(indev);
             AppUI_RequestPage(APP_UI_PAGE_NOTIFICATIONS);
         }
+        else if((indev != NULL) &&
+                (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) &&
+                (AppUI_IsAmbient() == 0U)) {
+            /* 从下向上滑进入快捷控制中心。 */
+            lv_indev_wait_release(indev);
+            AppUI_RequestPage(APP_UI_PAGE_CONTROL_CENTER);
+        }
         return;
     }
 

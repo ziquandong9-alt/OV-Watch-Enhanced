@@ -2,6 +2,7 @@
 
 #include "CST816.h"
 #include "calculator_page.h"
+#include "control_center_page.h"
 #include "battery_page.h"
 #include "battery_manager.h"
 #include "ble_manager.h"
@@ -64,6 +65,8 @@ static uint32_t s_ignore_long_press_until;
 static uint32_t s_last_touch_inactive_ms;
 /* 通知列表的版本号快照；版本变化时才刷新表盘红点，避免每轮重画。 */
 static uint32_t s_notification_generation;
+/* 达标庆祝层是当前屏幕的最上层对象；页面清空时 DELETE 事件会置空该指针。 */
+static lv_obj_t *s_motion_goal_overlay;
 
 static void AppUI_DestroyCurrentPage(void);
 static void AppUI_CreatePage(AppUI_Page_t page);
@@ -72,6 +75,11 @@ static void AppUI_Wake(uint8_t wrist_peek);
 static void AppUI_ExitStop(uint8_t wrist_peek);
 static void AppUI_ForceWatchPage(void);
 static void AppUI_ApplyWatchStatusBar(void);
+static void AppUI_CreateTouchBackButton(AppUI_Page_t page);
+static void AppUI_TouchBackEvent(lv_event_t *event);
+static void AppUI_ShowMotionGoalCelebration(void);
+static void AppUI_MotionGoalOverlayEvent(lv_event_t *event);
+static void AppUI_MotionGoalDismissEvent(lv_event_t *event);
 
 void AppUI_Init(void)
 {
@@ -86,6 +94,7 @@ void AppUI_Init(void)
     /* 亮度来自 EEPROM 中保存的用户设置，而不是写死在 UI 层。 */
     LCD_Set_Light(DeviceManager_GetWorkingBrightness());
     s_notification_generation = NotificationManager_GetGeneration();
+    s_motion_goal_overlay = NULL;
     /* 页面必须先创建，状态栏后创建；后创建的对象位于更靠上的绘制层。 */
     WatchFace_Create();
     StatusBar_Create(lv_scr_act());
@@ -117,6 +126,14 @@ void AppUI_HandleKey1(void)
         return;
     }
 
+    /* 庆祝层显示期间实体键先关闭弹层，不改变用户原本所在的页面。 */
+    if(s_motion_goal_overlay != NULL) {
+        lv_obj_del_async(s_motion_goal_overlay);
+        s_motion_goal_overlay = NULL;
+        AppUI_NotifyActivity();
+        return;
+    }
+
     AppUI_NotifyActivity();
 
     /* 按键相当于“进入/返回键”，返回目的地取决于页面层级。 */
@@ -126,6 +143,10 @@ void AppUI_HandleKey1(void)
         break;
 
     case APP_UI_PAGE_MENU:
+        AppUI_RequestPage(APP_UI_PAGE_WATCH);
+        break;
+
+    case APP_UI_PAGE_CONTROL_CENTER:
         AppUI_RequestPage(APP_UI_PAGE_WATCH);
         break;
 
@@ -139,6 +160,10 @@ void AppUI_HandleKey1(void)
     case APP_UI_PAGE_HISTORY:
     case APP_UI_PAGE_SETTINGS:
         AppUI_RequestPage(APP_UI_PAGE_MENU);
+        break;
+
+    case APP_UI_PAGE_MOTION_GOAL:
+        AppUI_RequestPage(APP_UI_PAGE_MOTION);
         break;
 
     case APP_UI_PAGE_NOTIFICATIONS:
@@ -269,6 +294,7 @@ void AppUI_Process(void)
      */
     if((s_ambient == 0U) &&
        (s_current_page != APP_UI_PAGE_HEART) &&
+       (ControlCenterPage_IsFlashlightActive() == 0U) &&
        (app_inactive_ms >= APP_UI_IDLE_TIMEOUT_MS) &&
        (touch_inactive_ms >= APP_UI_IDLE_TIMEOUT_MS)) {
         AppUI_EnterLowPower(0U);
@@ -286,6 +312,13 @@ void AppUI_Process(void)
             AppUI_CreatePage(next_page);
             s_current_page = next_page;
         }
+    }
+
+
+    /* AOD/STOP 分支都会在上方提前 return，所以达标事件会一直保留到真正唤醒。 */
+    if((s_ambient == 0U) &&
+       (DeviceManager_TakeMotionGoalReachedEvent() != 0U)) {
+        AppUI_ShowMotionGoalCelebration();
     }
 }
 
@@ -318,6 +351,9 @@ static void AppUI_DestroyCurrentPage(void)
     case APP_UI_PAGE_MENU:
         MenuPage_Destroy();
         break;
+    case APP_UI_PAGE_CONTROL_CENTER:
+        ControlCenterPage_Destroy();
+        break;
     case APP_UI_PAGE_DATE_SETTING:
         DateSettingPage_Destroy();
         break;
@@ -326,6 +362,9 @@ static void AppUI_DestroyCurrentPage(void)
         break;
     case APP_UI_PAGE_MOTION:
         MotionPage_Destroy();
+        break;
+    case APP_UI_PAGE_MOTION_GOAL:
+        MotionGoalPage_Destroy();
         break;
     case APP_UI_PAGE_HEART:
         HeartPage_Destroy();
@@ -374,6 +413,9 @@ static void AppUI_CreatePage(AppUI_Page_t page)
     case APP_UI_PAGE_MENU:
         MenuPage_Create();
         break;
+    case APP_UI_PAGE_CONTROL_CENTER:
+        ControlCenterPage_Create();
+        break;
     case APP_UI_PAGE_DATE_SETTING:
         DateSettingPage_Create();
         break;
@@ -382,6 +424,9 @@ static void AppUI_CreatePage(AppUI_Page_t page)
         break;
     case APP_UI_PAGE_MOTION:
         MotionPage_Create();
+        break;
+    case APP_UI_PAGE_MOTION_GOAL:
+        MotionGoalPage_Create();
         break;
     case APP_UI_PAGE_HEART:
         HeartPage_Create();
@@ -417,11 +462,163 @@ static void AppUI_CreatePage(AppUI_Page_t page)
         WatchFace_Create();
         break;
     }
-    /* 状态栏最后创建，保证它处于页面内容上层。 */
-    StatusBar_Create(lv_scr_act());
-    if(page == APP_UI_PAGE_WATCH) {
-        AppUI_ApplyWatchStatusBar();
+    /* 控制中心自己占满顶部区域；其他页面继续使用全局状态栏。 */
+    if(page != APP_UI_PAGE_CONTROL_CENTER) {
+        StatusBar_Create(lv_scr_act());
+        if(page == APP_UI_PAGE_WATCH) {
+            AppUI_ApplyWatchStatusBar();
+        }
+        else if(page != APP_UI_PAGE_MENU) {
+            StatusBar_SetBleVisible(0U);
+        }
     }
+    AppUI_CreateTouchBackButton(page);
+}
+
+static void AppUI_TouchBackEvent(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_get_act();
+    (void)event;
+    if(indev != NULL) lv_indev_wait_release(indev);
+    /* 触摸返回与实体键共用同一导航规则，通知详情等特殊层级不会分叉。 */
+    AppUI_HandleKey1();
+}
+
+static void AppUI_CreateTouchBackButton(AppUI_Page_t page)
+{
+    lv_obj_t *button;
+    lv_obj_t *label;
+
+    if((page == APP_UI_PAGE_WATCH) || (page == APP_UI_PAGE_MENU)) return;
+
+    button = lv_btn_create(lv_scr_act());
+    lv_obj_set_size(button, 44, 40);
+    lv_obj_align(button, LV_ALIGN_TOP_LEFT, 4, 2);
+    lv_obj_set_style_radius(button, 18, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button,
+                              lv_color_hex(0x303844U),
+                              LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button,
+                            LV_OPA_COVER,
+                            LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+    label = lv_label_create(button);
+    lv_label_set_text(label, LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xF1F4F8U), LV_PART_MAIN);
+    lv_obj_center(label);
+    lv_obj_add_event_cb(button,
+                        AppUI_TouchBackEvent,
+                        LV_EVENT_CLICKED,
+                        NULL);
+}
+
+static void AppUI_MotionGoalOverlayEvent(lv_event_t *event)
+{
+    if(lv_event_get_code(event) == LV_EVENT_DELETE) {
+        s_motion_goal_overlay = NULL;
+    }
+}
+
+static void AppUI_MotionGoalDismissEvent(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_get_act();
+    (void)event;
+    if(indev != NULL) lv_indev_wait_release(indev);
+    if(s_motion_goal_overlay != NULL) {
+        lv_obj_del_async(s_motion_goal_overlay);
+        s_motion_goal_overlay = NULL;
+    }
+    AppUI_NotifyActivity();
+}
+
+static void AppUI_ShowMotionGoalCelebration(void)
+{
+    static const int16_t confetti_x[] = {18, 51, 88, 176, 205, 28, 191, 68, 158, 214};
+    static const int16_t confetti_y[] = {22, 50, 18, 35, 72, 171, 158, 212, 205, 226};
+    static const uint32_t confetti_color[] = {
+        0xFF6B8AU, 0xFFD166U, 0x68D8FFU, 0x75E6A4U, 0xC77DFFU,
+        0xFFD166U, 0xFF6B8AU, 0x68D8FFU, 0x75E6A4U, 0xC77DFFU
+    };
+    lv_obj_t *card;
+    lv_obj_t *badge;
+    lv_obj_t *label;
+    lv_obj_t *button;
+    uint32_t i;
+
+    if(s_motion_goal_overlay != NULL) return;
+    s_motion_goal_overlay = lv_obj_create(lv_scr_act());
+    lv_obj_remove_style_all(s_motion_goal_overlay);
+    lv_obj_set_size(s_motion_goal_overlay, 240, 280);
+    lv_obj_align(s_motion_goal_overlay, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(s_motion_goal_overlay, lv_color_hex(0x070910U), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_motion_goal_overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(s_motion_goal_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_motion_goal_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_motion_goal_overlay, AppUI_MotionGoalOverlayEvent,
+                        LV_EVENT_DELETE, NULL);
+
+    for(i = 0U; i < sizeof(confetti_x) / sizeof(confetti_x[0]); i++) {
+        lv_obj_t *piece = lv_obj_create(s_motion_goal_overlay);
+        lv_obj_remove_style_all(piece);
+        lv_obj_set_size(piece, (i & 1U) ? 5 : 9, (i & 1U) ? 11 : 5);
+        lv_obj_set_pos(piece, confetti_x[i], confetti_y[i]);
+        lv_obj_set_style_radius(piece, 3, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(piece, lv_color_hex(confetti_color[i]), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(piece, LV_OPA_COVER, LV_PART_MAIN);
+    }
+
+    card = lv_obj_create(s_motion_goal_overlay);
+    lv_obj_set_size(card, 202, 210);
+    lv_obj_center(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(card, 28, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x171B26U), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x7F46A6U), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(card, 0, LV_PART_MAIN);
+
+    badge = lv_label_create(card);
+    lv_label_set_text(badge, LV_SYMBOL_OK);
+    lv_obj_set_style_text_font(badge, &lv_font_montserrat_48, LV_PART_MAIN);
+    lv_obj_set_style_text_color(badge, lv_color_hex(0x75E6A4U), LV_PART_MAIN);
+    lv_obj_align(badge, LV_ALIGN_TOP_MID, 0, 11);
+
+    label = lv_label_create(card);
+    lv_label_set_text(label, "GOAL COMPLETE!");
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 69);
+
+    label = lv_label_create(card);
+    lv_label_set_text_fmt(label, "You reached %lu steps!\nAmazing work today.",
+                          (unsigned long)DeviceManager_GetMotionGoal());
+    lv_obj_set_width(label, 180);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xB9C0CBU), LV_PART_MAIN);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 100);
+
+    button = lv_btn_create(card);
+    lv_obj_set_size(button, 154, 40);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_style_radius(button, 17, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x7F46A6U), LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(button, AppUI_MotionGoalDismissEvent,
+                        LV_EVENT_CLICKED, NULL);
+    label = lv_label_create(button);
+    lv_label_set_text(label, "AWESOME!");
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_center(label);
+
+    lv_obj_move_foreground(s_motion_goal_overlay);
+    AppUI_NotifyActivity();
 }
 
 static void AppUI_EnterLowPower(uint8_t force_stop)

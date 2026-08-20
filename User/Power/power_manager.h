@@ -17,5 +17,7 @@ void PowerManager_EndStopSession(void);
 uint8_t PowerManager_StopOnce(void);
 void PowerManager_SuspendUnusedPeripherals(uint8_t for_stop);
 void PowerManager_ResumePeripherals(void);
+/* 保存工作由调用方完成；本函数关闭显示并释放 PA3 电源锁存。 */
+void PowerManager_Shutdown(void);
 
 #endif

@@ -1,0 +1,9 @@
+*** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\Keil_v5\ARM\ARMCC\Bin'
+Build target 'My_OV_Watch'
+compiling control_center_page.c...
+..\User\Pages\control_center_page.c(132): error:  #20: identifier "lv_font_montserrat_16" is undefined
+      lv_obj_set_style_text_font(label, &lv_font_montserrat_16, LV_PART_MAIN);
+..\User\Pages\control_center_page.c: 0 warnings, 1 error
+"My_OV_Watch\My_OV_Watch.axf" - 1 Error(s), 0 Warning(s).
+Target not created.
+Build Time Elapsed:  00:00:04

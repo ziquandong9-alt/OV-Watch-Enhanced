@@ -10,7 +10,6 @@
 #include "history_manager.h"
 #include "rtc.h"
 #include "stm32f4xx_hal.h"
-
 #include <string.h>
 
 /*
@@ -63,9 +62,13 @@
 #define EEPROM_TIME_MARKER          0xA5U
 #define EEPROM_SETTINGS_MARKER      0x5AU
 #define EEPROM_STEPS_MARKER         0xC7U
-#define EEPROM_SETTINGS_VERSION     2U
+#define EEPROM_SETTINGS_VERSION     3U
 #define DEFAULT_WORK_BRIGHTNESS     50U
 #define DEFAULT_AMBIENT_BRIGHTNESS  5U
+#define DEFAULT_MOTION_GOAL_STEPS   10000UL
+#define MOTION_GOAL_UNIT_STEPS      500UL
+#define MOTION_GOAL_MIN_UNITS       2U
+#define MOTION_GOAL_MAX_UNITS       60U
 
 /* 四类传感器的“最后有效值”缓存，Getter 只返回这些结构的只读地址。 */
 static Device_EnvironmentData_t s_environment;
@@ -79,6 +82,10 @@ static uint8_t s_ambient_enabled = 1U;
 static uint8_t s_working_brightness = DEFAULT_WORK_BRIGHTNESS;
 static uint8_t s_ambient_brightness = DEFAULT_AMBIENT_BRIGHTNESS;
 static uint8_t s_watch_face;
+/* 目标以实际步数保存在 RAM；EEPROM 中压缩成 500 步一个档位。 */
+static uint32_t s_motion_goal_steps = DEFAULT_MOTION_GOAL_STEPS;
+static uint8_t s_motion_goal_reached;
+static uint8_t s_motion_goal_event_pending;
 /* 抬腕检测保存上次姿态并生成边沿事件，而不是持续报告电平。 */
 static uint8_t s_wrist_was_up;
 static uint8_t s_wrist_raise_event;
@@ -605,6 +612,12 @@ static void ProcessSteps(uint32_t now)
         s_motion.updated_at_ms = now;
         s_step_last_ms = now;
         s_step_peak_armed = 0U;
+        /* 只在“未达标 -> 达标”的边沿生成事件，后续每一步不会重复弹窗。 */
+        if((s_motion_goal_reached == 0U) &&
+           (s_motion.steps_today >= s_motion_goal_steps)) {
+            s_motion_goal_reached = 1U;
+            s_motion_goal_event_pending = 1U;
+        }
     }
     else if(dynamic <= STEP_DYNAMIC_LOW) {
         s_step_peak_armed = 1U;
@@ -691,6 +704,8 @@ static void ProcessStepDate(uint32_t now)
         s_step_day = date.Date;
         s_motion.steps_today = 0U;
         s_motion.updated_at_ms = now;
+        s_motion_goal_reached = 0U;
+        s_motion_goal_event_pending = 0U;
         SaveSteps();
     }
 }
@@ -781,6 +796,41 @@ const Device_EnvironmentData_t *DeviceManager_GetEnvironment(void) { return &s_e
 const Device_HeartData_t *DeviceManager_GetHeart(void) { return &s_heart; }
 const Device_MotionData_t *DeviceManager_GetMotion(void) { return &s_motion; }
 const Device_CompassData_t *DeviceManager_GetCompass(void) { return &s_compass; }
+
+uint32_t DeviceManager_GetMotionGoal(void)
+{
+    return s_motion_goal_steps;
+}
+
+void DeviceManager_SetMotionGoal(uint32_t steps)
+{
+    uint32_t units = (steps + MOTION_GOAL_UNIT_STEPS / 2UL) /
+                     MOTION_GOAL_UNIT_STEPS;
+
+    if(units < MOTION_GOAL_MIN_UNITS) units = MOTION_GOAL_MIN_UNITS;
+    if(units > MOTION_GOAL_MAX_UNITS) units = MOTION_GOAL_MAX_UNITS;
+    steps = units * MOTION_GOAL_UNIT_STEPS;
+    if(steps == s_motion_goal_steps) return;
+
+    s_motion_goal_steps = steps;
+    if(s_motion.steps_today >= s_motion_goal_steps) {
+        /* 把目标调低到当前步数以下也算本日首次达标。 */
+        if(s_motion_goal_reached == 0U) s_motion_goal_event_pending = 1U;
+        s_motion_goal_reached = 1U;
+    }
+    else {
+        s_motion_goal_reached = 0U;
+        s_motion_goal_event_pending = 0U;
+    }
+    SaveSettings();
+}
+
+uint8_t DeviceManager_TakeMotionGoalReachedEvent(void)
+{
+    uint8_t pending = s_motion_goal_event_pending;
+    s_motion_goal_event_pending = 0U;
+    return pending;
+}
 
 uint8_t DeviceManager_GetWristWakeEnabled(void) { return s_wrist_wake_enabled; }
 void DeviceManager_SetWristWakeEnabled(uint8_t enabled)
@@ -880,6 +930,8 @@ void DeviceManager_SaveDateTimeNow(void)
         s_step_month = date.Month;
         s_step_day = date.Date;
         s_motion.steps_today = 0U;
+        s_motion_goal_reached = 0U;
+        s_motion_goal_event_pending = 0U;
     }
 
     record[0] = EEPROM_TIME_MARKER;
@@ -980,9 +1032,18 @@ static void LoadSettings(void)
                    EEPROM_SETTINGS_MARKER, record, &newest_slot) != 0U) {
         s_settings_next_slot = (uint8_t)((newest_slot + 1U) % EEPROM_SETTINGS_SLOTS);
         s_settings_next_sequence = (uint8_t)(record[1] + 1U);
-        if(record[2] != EEPROM_SETTINGS_VERSION) return;
+        if((record[2] != 2U) &&
+           (record[2] != EEPROM_SETTINGS_VERSION)) return;
         s_wrist_wake_enabled = (record[3] & 0x01U) ? 1U : 0U;
         s_ambient_enabled = (record[3] & 0x02U) ? 1U : 0U;
+        if(record[2] >= 3U) {
+            uint8_t goal_units = (uint8_t)(record[3] >> 2);
+            if((goal_units >= MOTION_GOAL_MIN_UNITS) &&
+               (goal_units <= MOTION_GOAL_MAX_UNITS)) {
+                s_motion_goal_steps = (uint32_t)goal_units *
+                                      MOTION_GOAL_UNIT_STEPS;
+            }
+        }
         if((record[4] >= 1U) && (record[4] <= 100U)) s_working_brightness = record[4];
         if((record[5] >= 1U) && (record[5] <= s_working_brightness)) s_ambient_brightness = record[5];
         if(record[6] <= 2U) s_watch_face = record[6];
@@ -992,7 +1053,8 @@ static void LoadSettings(void)
     BL24C02_Read(EEPROM_LEGACY_SETTINGS_ADDRESS, EEPROM_RECORD_SIZE, record);
     if((record[0] != EEPROM_SETTINGS_MARKER) ||
        (record[7] != Checksum(record)) ||
-       ((record[1] != 1U) && (record[1] != EEPROM_SETTINGS_VERSION))) return;
+       ((record[1] != 1U) && (record[1] != 2U) &&
+        (record[1] != EEPROM_SETTINGS_VERSION))) return;
     s_wrist_wake_enabled = (record[2] != 0U) ? 1U : 0U;
     s_ambient_enabled = (record[3] != 0U) ? 1U : 0U;
     if((record[4] >= 1U) && (record[4] <= 100U)) s_working_brightness = record[4];
@@ -1008,9 +1070,11 @@ static void SaveSettings(void)
     record[0] = EEPROM_SETTINGS_MARKER;
     record[1] = s_settings_next_sequence;
     record[2] = EEPROM_SETTINGS_VERSION;
-    /* 两个布尔设置压缩进同一 flags 字节，为后续版本保留空间。 */
+    /* 低两位保存布尔设置，高六位保存 500 步一个档位的今日目标。 */
     record[3] = (uint8_t)((s_wrist_wake_enabled ? 0x01U : 0U) |
-                          (s_ambient_enabled ? 0x02U : 0U));
+                          (s_ambient_enabled ? 0x02U : 0U) |
+                          (uint8_t)((s_motion_goal_steps /
+                                     MOTION_GOAL_UNIT_STEPS) << 2));
     record[4] = s_working_brightness;
     record[5] = s_ambient_brightness;
     record[6] = s_watch_face;
@@ -1047,6 +1111,9 @@ static void LoadSteps(void)
                                    ((uint32_t)record[6] << 8);
         }
         s_last_saved_steps = s_motion.steps_today;
+        s_motion_goal_reached =
+            (s_motion.steps_today >= s_motion_goal_steps) ? 1U : 0U;
+        s_motion_goal_event_pending = 0U;
         return;
     }
 
@@ -1059,6 +1126,10 @@ static void LoadSteps(void)
                                ((uint32_t)record[6] << 16);
         s_last_saved_steps = s_motion.steps_today;
     }
+    /* 重启恢复已有步数时不重复祝贺；下一次跨过目标才产生新事件。 */
+    s_motion_goal_reached =
+        (s_motion.steps_today >= s_motion_goal_steps) ? 1U : 0U;
+    s_motion_goal_event_pending = 0U;
 }
 
 static void SaveSteps(void)

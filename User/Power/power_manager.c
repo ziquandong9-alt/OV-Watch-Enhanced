@@ -128,6 +128,32 @@ void PowerManager_ResumePeripherals(void)
     s_peripheral_suspend_level = 0U;
 }
 
+void PowerManager_Shutdown(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+
+    /* 先让 SPI 链路静止并关闭显示，避免掉电过程中留下随机亮屏。 */
+    LCD_WaitForDMA();
+    LCD_ST7789_SleepIn();
+    LCD_Set_Light(0U);
+
+    /* 原理图中 PA3 经 R17/D5 只负责向 TPS_EN 提供保持电平。
+       拉低后不再供电，TPS_EN 由 R16 下拉，真正电池供电时整机随即断电。 */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    gpio.Pin = POWER_EN_Pin;
+    gpio.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio.Pull = GPIO_NOPULL;
+    gpio.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(POWER_EN_GPIO_Port, &gpio);
+    __disable_irq();
+    HAL_GPIO_WritePin(POWER_EN_GPIO_Port, POWER_EN_Pin, GPIO_PIN_RESET);
+
+    /* 调试器或外部 3V3 仍供电时 MCU 不会真正掉电，停在这里防止重新亮屏。 */
+    for(;;) {
+        __WFI();
+    }
+}
+
 uint8_t PowerManager_StopOnce(void)
 {
     uint8_t flags;

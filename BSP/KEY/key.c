@@ -1,6 +1,6 @@
 #include "key.h"
 
-#define KEY_SCAN_PERIOD_MS       10U
+#define KEY_SCAN_PERIOD_MS       20U
 #define KEY_DEBOUNCE_TIME_MS     30U
 
 /* “原始电平→保持 30 ms→稳定状态→一次性事件”的按键状态机。 */
@@ -32,7 +32,7 @@ void Key_Init(void)
 
 void Key_Proc(void)
 {
-    /* 主循环可高频调用，真正 GPIO 扫描限制为每 10 ms 一次。 */
+    /* 主循环可高频调用，真正 GPIO 扫描限制为每 20 ms 一次。 */
     uint32_t now = HAL_GetTick();
     uint8_t current_pressed;
 

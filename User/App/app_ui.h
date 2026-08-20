@@ -11,9 +11,11 @@ typedef enum {
     /* 枚举值是 UI 状态机的唯一页面标识，Create/Destroy 的 switch 必须成对覆盖。 */
     APP_UI_PAGE_WATCH = 0,
     APP_UI_PAGE_MENU,
+    APP_UI_PAGE_CONTROL_CENTER,
     APP_UI_PAGE_DATE_SETTING,
     APP_UI_PAGE_TIME_SETTING,
     APP_UI_PAGE_MOTION,
+    APP_UI_PAGE_MOTION_GOAL,
     APP_UI_PAGE_HEART,
     APP_UI_PAGE_ENVIRONMENT,
     APP_UI_PAGE_COMPASS,

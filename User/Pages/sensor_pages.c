@@ -1,5 +1,6 @@
 #include "sensor_pages.h"
 
+#include "app_ui.h"
 #include "device_manager.h"
 #include "lvgl.h"
 #include "stm32f4xx_hal.h"
@@ -10,6 +11,10 @@ static lv_timer_t *s_page_timer;
 static lv_obj_t *s_value_label;
 static lv_obj_t *s_detail_label;
 static lv_obj_t *s_status_label;
+static lv_obj_t *s_motion_goal_label;
+static lv_obj_t *s_motion_progress_bar;
+static lv_obj_t *s_motion_goal_slider;
+static lv_obj_t *s_motion_goal_value_label;
 static lv_obj_t *s_compass_meter;
 static lv_meter_indicator_t *s_compass_needle;
 static lv_obj_t *s_compass_heading_label;
@@ -68,30 +73,123 @@ static void DeletePageTimer(void)
     s_value_label = NULL;
     s_detail_label = NULL;
     s_status_label = NULL;
+    s_motion_goal_label = NULL;
+    s_motion_progress_bar = NULL;
+    s_motion_goal_slider = NULL;
+    s_motion_goal_value_label = NULL;
 }
 
 static void MotionUpdate(lv_timer_t *timer)
 {
-    /* 主动让 DeviceManager 更新缓存，再把步数和三轴数据格式化到 label。 */
+    /* 页面只读取后台持续维护的计步缓存，并计算今日目标完成比例。 */
     const Device_MotionData_t *data;
+    uint32_t goal;
+    uint32_t percent;
+    uint32_t remaining;
     (void)timer;
     data = DeviceManager_GetMotion();
-    if(data->connected == 0U) {
-        lv_label_set_text(s_value_label, "NOT FOUND");
-        lv_label_set_text(s_detail_label, "Check MPU6050 on PB13/PB14");
-        return;
-    }
+    goal = DeviceManager_GetMotionGoal();
+    percent = (data->steps_today >= goal) ? 100UL :
+              (data->steps_today * 100UL) / goal;
+    remaining = (data->steps_today >= goal) ? 0UL :
+                goal - data->steps_today;
+
     lv_label_set_text_fmt(s_value_label, "%lu",
                           (unsigned long)data->steps_today);
-    lv_label_set_text(s_detail_label, "STEPS TODAY\nLow-power tracking is always active");
-    lv_label_set_text(s_status_label, "Automatically resets after midnight");
+    lv_label_set_text(s_detail_label, "STEPS TODAY");
+    lv_label_set_text_fmt(s_motion_goal_label, "%lu / %lu STEPS",
+                          (unsigned long)data->steps_today,
+                          (unsigned long)goal);
+    lv_bar_set_value(s_motion_progress_bar, (int32_t)percent, LV_ANIM_ON);
+    if(remaining == 0UL) {
+        lv_label_set_text(s_status_label, "TODAY'S GOAL COMPLETE!");
+        lv_obj_set_style_text_color(s_status_label,
+                                    lv_color_hex(0x75E6A4U), LV_PART_MAIN);
+    }
+    else if(data->connected == 0U) {
+        lv_label_set_text(s_status_label, "MOTION SENSOR NOT FOUND");
+        lv_obj_set_style_text_color(s_status_label,
+                                    lv_color_hex(0xEF8C8CU), LV_PART_MAIN);
+    }
+    else {
+        lv_label_set_text_fmt(s_status_label, "%lu STEPS TO GO",
+                              (unsigned long)remaining);
+        lv_obj_set_style_text_color(s_status_label,
+                                    lv_color_hex(0x919AA6U), LV_PART_MAIN);
+    }
+}
+
+static void MotionGoalOpenEvent(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_get_act();
+    (void)event;
+    if(indev != NULL) lv_indev_wait_release(indev);
+    AppUI_RequestPage(APP_UI_PAGE_MOTION_GOAL);
 }
 
 void MotionPage_Create(void)
 {
-    /* Open 提升运动传感器工作模式；Update(NULL) 负责立即填充首屏。 */
-    (void)CreateBase("ACTIVITY", 0xDC80E6U);
+    lv_obj_t *screen = lv_scr_act();
+    lv_obj_t *title;
+    lv_obj_t *button;
+    lv_obj_t *button_label;
+
+    lv_obj_clean(screen);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+
+    title = lv_label_create(screen);
+    lv_label_set_text(title, "ACTIVITY");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xDC80E6U), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_value_label = lv_label_create(screen);
+    lv_obj_set_style_text_font(s_value_label, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_value_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_align(s_value_label, LV_ALIGN_TOP_MID, 0, 52);
     lv_label_set_text(s_value_label, "0");
+
+    s_detail_label = lv_label_create(screen);
+    lv_label_set_text(s_detail_label, "STEPS TODAY");
+    lv_obj_set_style_text_font(s_detail_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_detail_label, lv_color_hex(0x9DA6B2U), LV_PART_MAIN);
+    lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, 82);
+
+    s_motion_goal_label = lv_label_create(screen);
+    lv_obj_set_style_text_font(s_motion_goal_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_motion_goal_label, lv_color_hex(0xD9DDE4U), LV_PART_MAIN);
+    lv_obj_align(s_motion_goal_label, LV_ALIGN_TOP_MID, 0, 108);
+
+    s_motion_progress_bar = lv_bar_create(screen);
+    lv_obj_set_size(s_motion_progress_bar, 190, 12);
+    lv_obj_align(s_motion_progress_bar, LV_ALIGN_TOP_MID, 0, 134);
+    lv_bar_set_range(s_motion_progress_bar, 0, 100);
+    lv_obj_set_style_radius(s_motion_progress_bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_motion_progress_bar, lv_color_hex(0x242A33U), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_motion_progress_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_motion_progress_bar, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_motion_progress_bar, lv_color_hex(0xC36BE0U), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_motion_progress_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+
+    s_status_label = lv_label_create(screen);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 158);
+
+    button = lv_btn_create(screen);
+    lv_obj_set_size(button, 184, 44);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_set_style_radius(button, 18, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x7F46A6U), LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(button, MotionGoalOpenEvent, LV_EVENT_CLICKED, NULL);
+    button_label = lv_label_create(button);
+    lv_label_set_text(button_label, "SET DAILY GOAL");
+    lv_obj_set_style_text_font(button_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(button_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_center(button_label);
+
     DeviceManager_MotionOpen();
     MotionUpdate(NULL);
     s_page_timer = lv_timer_create(MotionUpdate, 500U, NULL);
@@ -101,6 +199,103 @@ void MotionPage_Destroy(void)
 {
     /* 先停页面 timer，再让设备层恢复低功耗计步模式。 */
     DeviceManager_MotionClose();
+    DeletePageTimer();
+}
+
+static void MotionGoalUpdateValueLabel(void)
+{
+    uint32_t goal = (uint32_t)lv_slider_get_value(s_motion_goal_slider) * 500UL;
+    lv_label_set_text_fmt(s_motion_goal_value_label, "%lu STEPS",
+                          (unsigned long)goal);
+}
+
+static void MotionGoalSliderChanged(lv_event_t *event)
+{
+    (void)event;
+    MotionGoalUpdateValueLabel();
+}
+
+static void MotionGoalSaveEvent(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_get_act();
+    (void)event;
+    DeviceManager_SetMotionGoal(
+        (uint32_t)lv_slider_get_value(s_motion_goal_slider) * 500UL);
+    if(indev != NULL) lv_indev_wait_release(indev);
+    AppUI_RequestPage(APP_UI_PAGE_MOTION);
+}
+
+void MotionGoalPage_Create(void)
+{
+    lv_obj_t *screen = lv_scr_act();
+    lv_obj_t *title;
+    lv_obj_t *hint;
+    lv_obj_t *minimum;
+    lv_obj_t *maximum;
+    lv_obj_t *button;
+    lv_obj_t *button_label;
+
+    lv_obj_clean(screen);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x05070AU), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+
+    title = lv_label_create(screen);
+    lv_label_set_text(title, "DAILY GOAL");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xDC80E6U), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    hint = lv_label_create(screen);
+    lv_label_set_text(hint, "Choose your target");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x919AA6U), LV_PART_MAIN);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 60);
+
+    s_motion_goal_value_label = lv_label_create(screen);
+    lv_obj_set_style_text_font(s_motion_goal_value_label, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_motion_goal_value_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_align(s_motion_goal_value_label, LV_ALIGN_TOP_MID, 0, 88);
+
+    s_motion_goal_slider = lv_slider_create(screen);
+    lv_obj_set_size(s_motion_goal_slider, 190, 16);
+    lv_obj_align(s_motion_goal_slider, LV_ALIGN_TOP_MID, 0, 138);
+    lv_slider_set_range(s_motion_goal_slider, 2, 60);
+    lv_slider_set_value(s_motion_goal_slider,
+                        (int32_t)(DeviceManager_GetMotionGoal() / 500UL),
+                        LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_motion_goal_slider, lv_color_hex(0x292F39U), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_motion_goal_slider, lv_color_hex(0xC36BE0U), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_motion_goal_slider, lv_color_hex(0xF0C6FAU), LV_PART_KNOB);
+    lv_obj_add_event_cb(s_motion_goal_slider, MotionGoalSliderChanged,
+                        LV_EVENT_VALUE_CHANGED, NULL);
+
+    minimum = lv_label_create(screen);
+    lv_label_set_text(minimum, "1,000");
+    lv_obj_set_style_text_color(minimum, lv_color_hex(0x737D89U), LV_PART_MAIN);
+    lv_obj_align(minimum, LV_ALIGN_TOP_LEFT, 25, 160);
+    maximum = lv_label_create(screen);
+    lv_label_set_text(maximum, "30,000");
+    lv_obj_set_style_text_color(maximum, lv_color_hex(0x737D89U), LV_PART_MAIN);
+    lv_obj_align(maximum, LV_ALIGN_TOP_RIGHT, -25, 160);
+
+    button = lv_btn_create(screen);
+    lv_obj_set_size(button, 184, 46);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -24);
+    lv_obj_set_style_radius(button, 18, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x7F46A6U), LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(button, MotionGoalSaveEvent, LV_EVENT_CLICKED, NULL);
+    button_label = lv_label_create(button);
+    lv_label_set_text(button_label, "SAVE GOAL");
+    lv_obj_set_style_text_font(button_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(button_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_center(button_label);
+    MotionGoalUpdateValueLabel();
+}
+
+void MotionGoalPage_Destroy(void)
+{
     DeletePageTimer();
 }
 

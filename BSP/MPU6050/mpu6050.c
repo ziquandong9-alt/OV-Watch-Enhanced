@@ -481,7 +481,7 @@ uint8_t MPU_isHorizontal(void)
     /* 根据姿态角阈值判断是否抬腕到可阅读方向，用于生成边沿事件。 */
 	float roll,pitch;
 	MPU_Get_Angles(&roll,&pitch);
-	if(roll<=0.50f && roll>=-0.50f && pitch<=0.50f && pitch>=-0.50f)
+	if(roll<=1.50f && roll>=-1.50f && pitch<=1.50f && pitch>=-1.50f)
 	{return 1;}
 	return 0;
 }
