@@ -226,22 +226,11 @@ static void NotificationPage_ShowList(void)
     NotificationPage_RebuildList();
 }
 
-static void NotificationPage_BackClicked(lv_event_t *event)
-{
-    /* 返回按钮也采用异步切换，避免在按钮 CLICKED 回调中删除按钮自身。 */
-    lv_indev_t *indev = lv_indev_get_act();
-    (void)event;
-    if(indev != NULL) lv_indev_wait_release(indev);
-    NotificationPage_ScheduleList();
-}
-
 /* 清理列表视图并按稳定 id 创建通知详情视图。 */
 static void NotificationPage_ShowDetail(uint32_t id)
 {
     const Notification_Record_t *record = NotificationPage_Find(id);
     lv_obj_t *screen = s_root;
-    lv_obj_t *back;
-    lv_obj_t *back_label;
     lv_obj_t *title;
     lv_obj_t *time_label;
     lv_obj_t *panel;
@@ -262,17 +251,6 @@ static void NotificationPage_ShowDetail(uint32_t id)
     /* clean 已删除列表对象，立即清空借用指针防止更新 timer 误用。 */
     s_list = NULL;
     s_count_label = NULL;
-
-    back = lv_btn_create(screen);
-    lv_obj_set_size(back, 54, 38);
-    lv_obj_set_ext_click_area(back, 14);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 7, 7);
-    lv_obj_set_style_bg_color(back, lv_color_hex(0x202833U), LV_PART_MAIN);
-    lv_obj_add_event_cb(back, NotificationPage_BackClicked,
-                        LV_EVENT_CLICKED, NULL);
-    back_label = lv_label_create(back);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT);
-    lv_obj_center(back_label);
 
     title = lv_label_create(screen);
     lv_label_set_text(title, record->title);
