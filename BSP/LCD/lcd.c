@@ -2,7 +2,7 @@
 
 /* ST7789 像素层：LVGL 使用异步 DMA 刷块，其余点线文字函数供裸机测试。 */
 #include "lcd_init.h"
-#include "lcdfont.h"
+#include "font8x8_basic.h"
 #include "spi.h"
 
 #define LCD_DMA_MAX_CHUNK_BYTES 65534UL
@@ -552,54 +552,46 @@ void LCD_ShowChar(uint16_t x, uint16_t y, uint8_t character,
                   uint16_t foreground, uint16_t background,
                   uint8_t size, uint8_t overlay)
 {
-    /* 从 ASCII 字模取位；mode 决定背景透明或同时写背景色。 */
-    uint8_t temp;
+    /* 将公共领域 8×8 点阵按目标字号缩放，供裸机测试文字使用。 */
     uint8_t width;
-    uint8_t bit;
-    uint16_t byte_index;
-    uint16_t font_bytes;
-    uint16_t pixel_count = 0U;
-    uint16_t x_origin = x;
+    uint8_t target_x;
+    uint8_t target_y;
+    uint8_t source_x;
+    uint8_t source_y;
+    uint8_t source_row;
+    uint8_t pixel_on;
 
     if ((character < (uint8_t)' ') || (character > (uint8_t)'~'))
         return;
+    if ((size != 12U) && (size != 16U) &&
+        (size != 24U) && (size != 32U))
+        return;
 
     width = size / 2U;
-    font_bytes = (uint16_t)((width / 8U + ((width % 8U) != 0U ? 1U : 0U)) * size);
-    character = (uint8_t)(character - (uint8_t)' ');
-
     if (overlay == 0U)
-        LCD_Address_Set(x, y, (uint16_t)(x + width - 1U), (uint16_t)(y + size - 1U));
+        LCD_Address_Set(x, y, (uint16_t)(x + width - 1U),
+                        (uint16_t)(y + size - 1U));
 
-    for (byte_index = 0U; byte_index < font_bytes; ++byte_index)
+    for (target_y = 0U; target_y < size; ++target_y)
     {
-        if (size == 12U) temp = ascii_1206[character][byte_index];
-        else if (size == 16U) temp = ascii_1608[character][byte_index];
-        else if (size == 24U) temp = ascii_2412[character][byte_index];
-        else if (size == 32U) temp = ascii_3216[character][byte_index];
-        else return;
+        source_y = (uint8_t)(((uint16_t)target_y * 8U) / size);
+        source_row = lcd_font8x8_basic[character][source_y];
 
-        for (bit = 0U; bit < 8U; ++bit)
+        for (target_x = 0U; target_x < width; ++target_x)
         {
+            source_x = (uint8_t)(((uint16_t)target_x * 8U) / width);
+            pixel_on = ((source_row & (uint8_t)(1U << source_x)) != 0U)
+                           ? 1U : 0U;
+
             if (overlay == 0U)
             {
-                LCD_WR_DATA((temp & (1U << bit)) != 0U ? foreground : background);
-                ++pixel_count;
-                if ((pixel_count % width) == 0U)
-                    break;
+                LCD_WR_DATA((pixel_on != 0U) ? foreground : background);
             }
-            else
+            else if (pixel_on != 0U)
             {
-                if ((temp & (1U << bit)) != 0U)
-                    LCD_DrawPoint(x, y, foreground);
-
-                ++x;
-                if ((x - x_origin) == width)
-                {
-                    x = x_origin;
-                    ++y;
-                    break;
-                }
+                LCD_DrawPoint((uint16_t)(x + target_x),
+                              (uint16_t)(y + target_y),
+                              foreground);
             }
         }
     }

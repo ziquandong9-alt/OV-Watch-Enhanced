@@ -1431,9 +1431,9 @@
               <FilePath>..\BSP\LCD\lcd_init.h</FilePath>
             </File>
             <File>
-              <FileName>lcdfont.h</FileName>
+              <FileName>font8x8_basic.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\BSP\LCD\lcdfont.h</FilePath>
+              <FilePath>..\BSP\LCD\font8x8_basic.h</FilePath>
             </File>
             <File>
               <FileName>pic.h</FileName>
@@ -1746,29 +1746,29 @@
               <FilePath>..\User\App\menu_icons.h</FilePath>
             </File>
             <File>
-              <FileName>ui_font_iconfont30.c</FileName>
+              <FileName>ui_font_material_icons30.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\App\Fonts\ui_font_iconfont30.c</FilePath>
+              <FilePath>..\User\App\Fonts\ui_font_material_icons30.c</FilePath>
             </File>
             <File>
-              <FileName>ui_font_iconfont34.c</FileName>
+              <FileName>ui_font_material_icons34.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\App\Fonts\ui_font_iconfont34.c</FilePath>
+              <FilePath>..\User\App\Fonts\ui_font_material_icons34.c</FilePath>
             </File>
             <File>
-              <FileName>ui_font_iconfont16.c</FileName>
+              <FileName>ui_font_material_icons16.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\App\Fonts\ui_font_iconfont16.c</FilePath>
+              <FilePath>..\User\App\Fonts\ui_font_material_icons16.c</FilePath>
             </File>
             <File>
-              <FileName>ui_font_iconfont24.c</FileName>
+              <FileName>ui_font_material_icons24.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\App\Fonts\ui_font_iconfont24.c</FilePath>
+              <FilePath>..\User\App\Fonts\ui_font_material_icons24.c</FilePath>
             </File>
             <File>
-              <FileName>ui_font_iconfont28.c</FileName>
+              <FileName>ui_font_material_icons28.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\App\Fonts\ui_font_iconfont28.c</FilePath>
+              <FilePath>..\User\App\Fonts\ui_font_material_icons28.c</FilePath>
             </File>
             <File>
               <FileName>ui_font_Fredoka135.c</FileName>
@@ -2074,11 +2074,6 @@
               <FileName>lv_font_montserrat_48.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\ThirdParty\LVGL\GUI\lvgl\src\font\lv_font_montserrat_48.c</FilePath>
-            </File>
-            <File>
-              <FileName>lv_font_simsun_16_cjk.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdParty\LVGL\GUI\lvgl\src\font\lv_font_simsun_16_cjk.c</FilePath>
             </File>
             <File>
               <FileName>lv_font_unscii_8.c</FileName>

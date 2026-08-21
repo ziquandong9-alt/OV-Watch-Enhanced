@@ -44,15 +44,15 @@
 #define INFO_COLOR_CYAN                0x14C8E1U
 #define INFO_COLOR_RED                 0xE11432U
 
-LV_FONT_DECLARE(ui_font_iconfont16);
-LV_FONT_DECLARE(ui_font_iconfont24);
-LV_FONT_DECLARE(ui_font_iconfont28);
+LV_FONT_DECLARE(ui_font_material_icons16);
+LV_FONT_DECLARE(ui_font_material_icons24);
+LV_FONT_DECLARE(ui_font_material_icons28);
 LV_FONT_DECLARE(ui_font_Fredoka135);
 
-#define INFO_ICON_BATTERY              "\xEE\x9A\x8F" /* U+E68F */
-#define INFO_ICON_STEPS                "\xEE\x99\xB6" /* U+E676 */
-#define INFO_ICON_TEMPERATURE          "\xEE\x99\x99" /* U+E659 */
-#define INFO_ICON_HUMIDITY             "\xEE\x99\xB3" /* U+E673 */
+#define INFO_ICON_BATTERY              "\xEE\x86\xA4" /* U+E1A4 battery_full */
+#define INFO_ICON_STEPS                "\xEE\x94\xB6" /* U+E536 directions_walk */
+#define INFO_ICON_TEMPERATURE          "\xEE\x87\xBF" /* U+E1FF device_thermostat */
+#define INFO_ICON_HUMIDITY             "\xEE\xA4\x9C" /* U+E91C opacity */
 #define WATCH_FACE_SCROLL_SETTLE_MS    80U
 
 static lv_obj_t *s_meter;
@@ -884,7 +884,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
 
     label = lv_label_create(s_info_content);
     lv_label_set_text(label, INFO_ICON_BATTERY);
-    lv_obj_set_style_text_font(label, &ui_font_iconfont16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_material_icons16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(0x19C819U), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, 76, -77);
 
@@ -896,7 +896,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
 
     label = lv_label_create(s_info_content);
     lv_label_set_text(label, INFO_ICON_STEPS);
-    lv_obj_set_style_text_font(label, &ui_font_iconfont24, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_material_icons24, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(INFO_COLOR_BLUE), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, -96, -13);
 
@@ -930,7 +930,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
                                                60);
     label = lv_label_create(s_info_content);
     lv_label_set_text(label, INFO_ICON_TEMPERATURE);
-    lv_obj_set_style_text_font(label, &ui_font_iconfont30, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_material_icons30, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(INFO_COLOR_ORANGE), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, -75, 91);
     s_info_temp_value = lv_label_create(s_info_content);
@@ -945,7 +945,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
                                                100);
     label = lv_label_create(s_info_content);
     lv_label_set_text(label, INFO_ICON_HUMIDITY);
-    lv_obj_set_style_text_font(label, &ui_font_iconfont28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_material_icons28, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(INFO_COLOR_CYAN), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 91);
     s_info_humi_value = lv_label_create(s_info_content);
@@ -960,7 +960,7 @@ static void WatchFace_CreateInfo(lv_obj_t *parent)
                                                 200);
     label = lv_label_create(s_info_content);
     lv_label_set_text(label, MENU_ICON_HEART_RATE);
-    lv_obj_set_style_text_font(label, &ui_font_iconfont34, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_material_icons34, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(INFO_COLOR_RED), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, 75, 91);
     s_info_heart_value = lv_label_create(s_info_content);

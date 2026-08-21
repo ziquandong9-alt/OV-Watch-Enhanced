@@ -26,7 +26,6 @@ CSRCS += lv_font_montserrat_42.c
 CSRCS += lv_font_montserrat_44.c
 CSRCS += lv_font_montserrat_46.c
 CSRCS += lv_font_montserrat_48.c
-CSRCS += lv_font_simsun_16_cjk.c
 CSRCS += lv_font_unscii_8.c
 CSRCS += lv_font_unscii_16.c
 

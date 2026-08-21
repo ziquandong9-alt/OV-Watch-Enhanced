@@ -26,17 +26,17 @@ static lv_coord_t s_saved_scroll_y;
 
 /* 表驱动菜单：新增功能只需增加一行，不必复制一套事件处理代码。 */
 static const MenuItem_t s_menu_items[] = {
-    {"Calendar",     MENU_ICON_CALENDAR,     &ui_font_iconfont30, 0xFF8080U, APP_UI_PAGE_DATE_SETTING},
-    {"Stopwatch",    MENU_ICON_TIMER,        &ui_font_iconfont34, 0x3A9DFFU, APP_UI_PAGE_STOPWATCH},
+    {"Calendar",     MENU_ICON_CALENDAR,     &ui_font_material_icons30, 0xFF8080U, APP_UI_PAGE_DATE_SETTING},
+    {"Stopwatch",    MENU_ICON_TIMER,        &ui_font_material_icons34, 0x3A9DFFU, APP_UI_PAGE_STOPWATCH},
     {"Calculator",   MENU_ICON_CALCULATOR,   &lv_font_montserrat_20, 0xF39A2EU, APP_UI_PAGE_CALCULATOR},
     {"Steps",        NULL,                   NULL,                  0xDC80E6U, APP_UI_PAGE_MOTION},
-    {"Environment",  MENU_ICON_ENVIRONMENT,  &ui_font_iconfont34, 0x009632U, APP_UI_PAGE_ENVIRONMENT},
-    {"Heart Rate",   MENU_ICON_HEART_RATE,   &ui_font_iconfont34, 0xC80000U, APP_UI_PAGE_HEART},
-    {"Compass",      MENU_ICON_COMPASS,      &ui_font_iconfont34, 0x800080U, APP_UI_PAGE_COMPASS},
+    {"Environment",  MENU_ICON_ENVIRONMENT,  &ui_font_material_icons34, 0x009632U, APP_UI_PAGE_ENVIRONMENT},
+    {"Heart Rate",   MENU_ICON_HEART_RATE,   &ui_font_material_icons34, 0xC80000U, APP_UI_PAGE_HEART},
+    {"Compass",      MENU_ICON_COMPASS,      &ui_font_material_icons34, 0x800080U, APP_UI_PAGE_COMPASS},
     {"Battery",      LV_SYMBOL_BATTERY_FULL, &lv_font_montserrat_20, 0x39C66DU, APP_UI_PAGE_BATTERY},
     {"History",      LV_SYMBOL_LIST,         &lv_font_montserrat_20, 0x627DFFU, APP_UI_PAGE_HISTORY},
-    {"Settings",     MENU_ICON_SETTINGS,     &ui_font_iconfont30, 0x808080U, APP_UI_PAGE_SETTINGS},
-    {"About",        MENU_ICON_ABOUT,        &ui_font_iconfont30, 0x646464U, APP_UI_PAGE_ABOUT},
+    {"Settings",     MENU_ICON_SETTINGS,     &ui_font_material_icons30, 0x808080U, APP_UI_PAGE_SETTINGS},
+    {"About",        MENU_ICON_ABOUT,        &ui_font_material_icons30, 0x646464U, APP_UI_PAGE_ABOUT},
 };
 
 static void MenuPage_ItemEvent(lv_event_t *event)
