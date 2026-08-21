@@ -1,4 +1,4 @@
-# OV-Watch Enhanced
+# OV-Watch Bare-Metal Refactor
 
 > 面向智能手表交互、显示性能与低功耗设计的 STM32F411 + LVGL 嵌入式作品集；基于 [No-Chicken/OV-Watch](https://github.com/No-Chicken/OV-Watch) 进行独立重构、性能优化和功能扩展。
 
