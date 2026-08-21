@@ -1,17 +1,17 @@
 # My OV Watch
 
-> 基于 [No-Chicken/OV-Watch](https://github.com/No-Chicken/OV-Watch) 的非官方深度二次开发版本。
+> 面向智能手表交互、显示性能与低功耗设计的 STM32F411 + LVGL 嵌入式作品集；基于 [No-Chicken/OV-Watch](https://github.com/No-Chicken/OV-Watch) 进行独立重构、性能优化和功能扩展。
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 ![MCU](https://img.shields.io/badge/MCU-STM32F411CEU6-32C5D2)
 ![GUI](https://img.shields.io/badge/GUI-LVGL-5C6BC0)
-![Build](https://img.shields.io/badge/Keil-0%20errors%20%7C%200%20warnings-brightgreen)
+![Build](https://img.shields.io/badge/Keil-build%20passing-brightgreen)
 
-本项目运行于 STM32F411CEU6 智能手表硬件，围绕 LVGL 显示性能、低功耗状态管理、可靠持久化和可穿戴交互进行了重构与扩展。它不是原项目的官方版本，也不代表原作者立场。
+本项目运行于 STM32F411CEU6 智能手表硬件，围绕 LVGL 显示性能、低功耗状态管理、可靠持久化和可穿戴交互进行了重构与扩展。本仓库同时作为嵌入式软件求职作品集：功能取舍、性能数据和技术结论均尽量提供可定位的源码与实机依据。它不是原项目的官方版本，也不代表原作者立场。
 
 原项目作者保留原始代码及素材的相应权利；本仓库维护者对 2026 年完成的修改和新增部分负责。完整来源与修改声明见 [ATTRIBUTION.md](ATTRIBUTION.md)。本修改版本继续按照 GNU GPL v3.0 发布。
 
-## 这个版本重点做了什么
+## 我的主要工程贡献
 
 - 三套表盘，可水平滑动、滚动吸附，并持久化最后选择。
 - 经典机械表盘采用平滑秒针与局部脏区刷新，避免整个 `lv_meter` 重绘。
@@ -88,9 +88,11 @@ main loop
 最近一次完整构建结果：
 
 ```text
-Program Size: Code=186276 RO-data=244052 RW-data=1408 ZI-data=110184
-0 Error(s), 0 Warning(s)
+Program Size: Code=186276 RO-data=223896 RW-data=1408 ZI-data=110184
+0 Error(s), 29 Warning(s)
 ```
+
+现有警告来自工程内保留的 STM32 HAL 与 LVGL 第三方源码；本项目自编写的应用层和本次字体、图标替换未引入新的编译警告。
 
 ## 目录
 
@@ -111,8 +113,8 @@ docs/           架构和性能说明
 
 - FPS 数据仍需补充固定手势、重复次数、SPI 配置和视频证据后才能作为严格 benchmark。
 - 使用 ST-Link 或外部 3.3 V 供电时，软件关机不会让 MCU 真正掉电，设备会黑屏并停在 WFI；真实电池供电时由 `POWER_EN` 保持电路断电。
-- 当前字体字形子集继承自上游工程，公开发布前仍需核对其独立字体授权，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-- 当前目标是可验证的二次开发与学习项目，不宣称在全部功能上取代或全面优于上游版本。
+- 字体和图标已替换为具有明确再分发许可的 Fredoka、Material Icons 与公共领域 font8x8 字形子集，来源和许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 当前版本定位为可在实机复现和验证的嵌入式作品集；性能结论只适用于已记录的硬件与测试场景，不把局部优化扩大为对上游版本的全面评价。
 
 ## AI 使用说明
 
