@@ -284,18 +284,3 @@ APP 没有正确链接到 `0x08011000`，初始 MSP 不在 SRAM，或者 Reset H
 ```powershell
 py -3 -m pip install -r Bootloader\Tools\requirements.txt
 ```
-
-## 13. GitHub 发布建议
-
-源码分支提交源码、Keil 工程、公钥、打包工具、许可证和文档；不要把每次构建产生的缓存与个人 Keil 状态提交进 Git 历史。
-
-面向普通使用者的正式产物适合放在 GitHub Releases：
-
-```text
-OV_Watch_Factory_v1.0.0.hex
-OV_Watch_SignedApp_v1.0.0.hex
-OV_Watch_v1.0.0.ovota
-SHA256SUMS.txt
-```
-
-普通用户下载已经签名的 Release 固件，不需要 Python 或私钥。想修改源码的学习者按照本指南生成自己的密钥对，并重编包含自己公钥的 Bootloader。这既保留完整可复现性，也避免不同开发者共用同一个发布身份。
