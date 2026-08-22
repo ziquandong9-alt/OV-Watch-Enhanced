@@ -3,6 +3,8 @@
 本目录实现的是适合当前 `STM32F411CEU6（512 KiB Flash）` 的“单应用区 + 不可覆盖恢复区”方案。
 它不是双分区 A/B：现有应用约 410 KiB，内部 Flash 无法同时容纳两份应用。升级断电后，旧应用可能已被擦除，但 Bootloader 始终保留，可以重新传输固件，因此不会因应用区损坏而失去恢复入口。
 
+第一次接触 Bootloader、数字签名或 Keil 分区烧录，请先阅读 [中文新手指南](GETTING_STARTED_CN.md)。指南从生成自己的密钥对开始，完整解释空板首次烧录、日常 APP 更新、串口 OTA 和常见故障。默认分支 `main` 仍是不带此 Bootloader、可直接编译下载的版本。
+
 ## Flash 布局
 
 | 地址范围 | 用途 |
@@ -35,17 +37,17 @@ fromelf.exe --bin --output My_OV_Watch.bin My_OV_Watch.axf
 
 ## 制作签名升级包
 
-签名私钥必须放在仓库外并做好离线备份，不能提交 Git。当前开发私钥位于 `D:\STM32_Test_Idel\OV_Watch_OTA_Keys\ota_signing_private.pem`。丢失私钥后，已有 Bootloader 不会接受新密钥签发的固件，只能通过 ST-Link 重刷 Bootloader。
+每位开发者都应生成自己的密钥对。私钥放在仓库外并做好备份；公钥头文件可以公开并编译进 Bootloader。丢失私钥后，包含原公钥的 Bootloader 不会接受新密钥签发的固件，只能通过 ST-Link 重刷包含新公钥的 Bootloader。生成方法见 [中文新手指南](GETTING_STARTED_CN.md)。
 
 ```powershell
-python Bootloader/Tools/ota_tool.py pack `
-  --bin My_OV_Watch.bin `
+py -3 Bootloader/Tools/ota_tool.py pack `
+  --bin Bootloader/Output/My_OV_Watch_latest.bin `
   --version 1 `
-  --private-key D:\STM32_Test_Idel\OV_Watch_OTA_Keys\ota_signing_private.pem `
+  --private-key D:\OVWatchKeys\ota_signing_private.pem `
   --no-password `
-  --output My_OV_Watch_v1.ovota
+  --output Bootloader/Output/OV_Watch_latest.ovota
 
-python Bootloader/Tools/ota_tool.py inspect My_OV_Watch_v1.ovota
+py -3 Bootloader/Tools/ota_tool.py inspect Bootloader/Output/OV_Watch_latest.ovota
 ```
 
 正式使用时建议把私钥改成口令加密版本，并去掉 `--no-password`。
@@ -57,7 +59,7 @@ python Bootloader/Tools/ota_tool.py inspect My_OV_Watch_v1.ovota
 恢复协议运行在 USART1（PA9/PA10，9600-8-N-1）。可以使用 3.3 V USB-TTL，或使用能把 KT6328 透明通道映射成串口的上位机链路：
 
 ```powershell
-python Bootloader/Tools/ota_tool.py send --port COM7 My_OV_Watch_v1.ovota
+py -3 Bootloader/Tools/ota_tool.py send --port COM7 Bootloader/Output/OV_Watch_latest.ovota
 ```
 
 不要把 5 V 串口电平直接接到 MCU。当前脚本面向串口；若电脑端只能看到 BLE GATT 而没有虚拟 COM，后续还需增加对应的 BLE GATT 上位机传输层，设备端签名、写入和恢复逻辑无需改变。
@@ -67,13 +69,13 @@ python Bootloader/Tools/ota_tool.py send --port COM7 My_OV_Watch_v1.ovota
 首次安装推荐使用工具的 `factory` 命令，生成一个同时包含 Bootloader、已提交签名清单和主应用的组合 HEX，再用 ST-Link 一次烧录：
 
 ```powershell
-python Bootloader/Tools/ota_tool.py factory `
+py -3 Bootloader/Tools/ota_tool.py factory `
   --boot-hex Bootloader/MDK-ARM/Objects/OV_Bootloader.hex `
-  --bin My_OV_Watch.bin `
-  --version 4 `
-  --private-key D:\STM32_Test_Idel\OV_Watch_OTA_Keys\ota_signing_private.pem `
+  --bin Bootloader/Output/My_OV_Watch_latest.bin `
+  --version 1 `
+  --private-key D:\OVWatchKeys\ota_signing_private.pem `
   --no-password `
-  --output OV_Watch_Factory_BOOT_UI_v4.hex
+  --output Bootloader/Output/OV_Watch_Factory_latest.hex
 ```
 
 不要把 Keil 主应用工程生成的普通 HEX 直接当成可启动升级包：它不包含 `0x08010000` 的签名清单。单独更新应用时，应使用 `apphex` 命令生成“签名清单 + 应用”的组合 HEX，或者通过 OTA 发送 `.ovota` 包。
@@ -85,7 +87,7 @@ python Bootloader/Tools/ota_tool.py factory `
 1. 打开 `Options for Target -> Utilities`，选择 `Use Debug Driver`，下拉框选择 `ST-Link Debugger`。
 2. 点击 `Settings`，在 `Flash Download` 页确认存在 `STM32F4xx 512kB Flash` 算法，起始地址应为 `0x08000000`、大小为 `0x00080000`。
 3. 首次修复时选择 `Erase Full Chip`，勾选 `Program`、`Verify` 和 `Reset and Run`。
-4. 退出设置，点击菜单 `Flash -> Download`。Keil 应显示正在加载 `../Output/OV_Watch_Factory_BOOT_UI_v4.hex`，最后出现 `Programming Done` 和 `Verify OK`。
+4. 退出设置，点击菜单 `Flash -> Download`。Keil 应显示正在加载 `../Output/OV_Watch_Factory_latest.hex`，最后出现 `Programming Done` 和 `Verify OK`。
 5. 复位后不要按 KEY1；Bootloader 会等待 3 秒并校验固件，约 4~5 秒后进入手表界面。
 
 如果 Keil 报无法连接，可在 ST-Link 的 Debug 设置中把连接模式临时设为 `Connect under Reset`，按住板上复位键开始连接，连接成功后松开。
@@ -99,12 +101,12 @@ python Bootloader/Tools/ota_tool.py factory `
 先构建根目录的 `MDK-ARM/My_OV_Watch.uvprojx`，再由 `fromelf` 导出 BIN，并用工具生成签名应用 HEX：
 
 ```powershell
-python Bootloader/Tools/ota_tool.py apphex `
-  --bin My_OV_Watch.bin `
-  --version 4 `
-  --private-key D:\STM32_Test_Idel\OV_Watch_OTA_Keys\ota_signing_private.pem `
+py -3 Bootloader/Tools/ota_tool.py apphex `
+  --bin Bootloader/Output/My_OV_Watch_latest.bin `
+  --version 1 `
+  --private-key D:\OVWatchKeys\ota_signing_private.pem `
   --no-password `
-  --output OV_Watch_SignedApp_v4.hex
+  --output Bootloader/Output/OV_Watch_SignedApp_latest.hex
 ```
 
 随后打开 `AppFlash/OV_Watch_SignedApp_Flash.uvprojx`，选择 `Erase Sectors`，直接执行 `Flash -> Download`，不要 Build。该 HEX 只写签名清单和 `0x08011000` 开始的应用区，不覆盖 Bootloader。

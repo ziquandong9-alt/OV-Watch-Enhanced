@@ -11,6 +11,10 @@
 
 原项目作者保留原始代码及素材的相应权利；本仓库维护者对 2026 年完成的修改和新增部分负责。完整来源与修改声明见 [ATTRIBUTION.md](ATTRIBUTION.md)。本修改版本继续按照 GNU GPL v3.0 发布。
 
+## 当前 Bootloader 分支说明
+
+你正在查看的 `feature/recovery-bootloader` 分支加入了独立恢复 Bootloader、ECDSA-P256 固件签名、SHA-256 完整性校验和断电恢复入口。第一次使用请从 [Bootloader 中文新手指南](Bootloader/GETTING_STARTED_CN.md) 开始。默认分支 `main` 保持不带安全 Bootloader 的直接编译、直接下载流程，适合先学习手表应用本身。
+
 ## 我的主要工程贡献
 
 - 三套表盘，可水平滑动、滚动吸附，并持久化最后选择。
