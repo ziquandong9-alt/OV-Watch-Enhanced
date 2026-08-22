@@ -63,6 +63,7 @@ extern "C" {
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
+void FatalDiagnostic_Blink(uint8_t code);
 
 /* USER CODE BEGIN EFP */
 

@@ -4,6 +4,16 @@ MDK-ARM/*.log
 MDK-ARM/.vscode/
 MDK-ARM/*.uvguix.*
 MDK-ARM/*.uvoptx
+Bootloader/MDK-ARM/Objects/
+Bootloader/MDK-ARM/DebugConfig/
+Bootloader/MDK-ARM/*.lst
+Bootloader/MDK-ARM/*.uvoptx
+Bootloader/Output/
+Bootloader/FactoryFlash/DebugConfig/
+Bootloader/AppFlash/DebugConfig/
+Bootloader/FactoryFlash/*.uvoptx
+Bootloader/AppFlash/*.uvoptx
+*.uvguix.*
 
 *.o
 *.d
@@ -20,3 +30,5 @@ MDK-ARM/*.uvoptx
 .DS_Store
 Thumbs.db
 Desktop.ini
+__pycache__/
+*.pyc

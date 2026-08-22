@@ -220,6 +220,28 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+void FatalDiagnostic_Blink(uint8_t code)
+{
+  volatile uint32_t delay;
+  uint8_t pulse;
+
+  /* 不依赖 HAL、时钟中断或 TIM3：即使初始化早期失败也能用背光报码。 */
+  __disable_irq();
+  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
+  (void)RCC->AHB1ENR;
+  GPIOB->MODER = (GPIOB->MODER & ~(3UL << 0U)) | (1UL << 0U);
+  GPIOB->OTYPER &= ~GPIO_PIN_0;
+
+  for(;;) {
+    for(delay = 0U; delay < 1200000UL; ++delay) { __NOP(); }
+    for(pulse = 0U; pulse < code; ++pulse) {
+      GPIOB->BSRR = GPIO_PIN_0;
+      for(delay = 0U; delay < 1200000UL; ++delay) { __NOP(); }
+      GPIOB->BSRR = (uint32_t)GPIO_PIN_0 << 16U;
+      for(delay = 0U; delay < 1200000UL; ++delay) { __NOP(); }
+    }
+  }
+}
 
 /* USER CODE END 4 */
 
@@ -230,11 +252,8 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+  /* 7 次慢闪表示应用初始化调用了 Error_Handler。 */
+  FatalDiagnostic_Blink(7U);
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
